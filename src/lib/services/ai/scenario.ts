@@ -157,6 +157,96 @@ Expand this into a rich, detailed world suitable for interactive storytelling.`
   }
 
   /**
+   * Elaborate on user-provided character details using AI.
+   */
+  async elaborateCharacter(
+    userInput: {
+      name?: string;
+      description?: string;
+      background?: string;
+      motivation?: string;
+      traits?: string[];
+    },
+    setting: ExpandedSetting | null,
+    genre: Genre,
+    customGenre?: string
+  ): Promise<GeneratedProtagonist> {
+    log('elaborateCharacter called', { userInput, genre });
+
+    const provider = this.getProvider();
+    const genreLabel = genre === 'custom' && customGenre ? customGenre : genre;
+
+    const messages: Message[] = [
+      {
+        role: 'system',
+        content: `You are a character development expert. The user has provided some details about their character. Your job is to elaborate and enrich these details while staying true to their vision.
+
+You MUST respond with valid JSON matching this exact schema:
+{
+  "name": "string - keep the user's name if provided, or suggest one if not",
+  "description": "string - 2-3 sentences expanding on who they are",
+  "background": "string - 2-3 sentences about their history, elaborating on what the user provided",
+  "motivation": "string - what drives them, expanding on the user's input",
+  "traits": ["string array - 4-5 personality traits, incorporating any the user mentioned"],
+  "appearance": "string - brief physical description if not provided"
+}
+
+Rules:
+- Preserve everything the user specified - don't contradict or replace their ideas
+- Add depth and detail to flesh out what they provided
+- Fill in gaps they left blank with fitting suggestions
+- Keep the tone appropriate for the ${genreLabel} genre
+${setting ? `- Make the character fit naturally into: ${setting.name}` : ''}`
+      },
+      {
+        role: 'user',
+        content: `Elaborate on this character for a ${genreLabel} story:
+
+${userInput.name ? `NAME: ${userInput.name}` : 'NAME: (suggest one)'}
+${userInput.description ? `DESCRIPTION: ${userInput.description}` : ''}
+${userInput.background ? `BACKGROUND: ${userInput.background}` : ''}
+${userInput.motivation ? `MOTIVATION: ${userInput.motivation}` : ''}
+${userInput.traits && userInput.traits.length > 0 ? `TRAITS: ${userInput.traits.join(', ')}` : ''}
+
+${setting ? `SETTING: ${setting.name}\n${setting.description}` : ''}
+
+Expand and enrich these details while staying true to what I've provided.`
+      }
+    ];
+
+    const response = await provider.generateResponse({
+      messages,
+      model: SCENARIO_MODEL,
+      temperature: 0.8,
+      maxTokens: 800,
+    });
+
+    log('Character elaboration response received', { length: response.content.length });
+
+    try {
+      let jsonStr = response.content;
+      const jsonMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
+      if (jsonMatch) {
+        jsonStr = jsonMatch[1].trim();
+      }
+
+      const result = JSON.parse(jsonStr) as GeneratedProtagonist;
+      log('Character elaboration parsed successfully', { name: result.name });
+      return result;
+    } catch (error) {
+      log('Failed to parse character elaboration response', error);
+      // Return what the user provided with minimal defaults
+      return {
+        name: userInput.name || 'The Protagonist',
+        description: userInput.description || 'A mysterious figure.',
+        background: userInput.background || 'Their past is shrouded in mystery.',
+        motivation: userInput.motivation || 'To find their purpose.',
+        traits: userInput.traits || ['Determined', 'Resourceful'],
+      };
+    }
+  }
+
+  /**
    * Generate a protagonist character based on the setting and mode.
    */
   async generateProtagonist(
@@ -358,50 +448,60 @@ Generate ${count} interesting supporting characters who would create compelling 
     const messages: Message[] = [
       {
         role: 'system',
-        content: `You are a master storyteller crafting the opening scene of an interactive ${genreLabel} ${mode === 'adventure' ? 'adventure' : 'story'}.
+        content: `You are crafting the opening scene of an interactive ${genreLabel} ${mode === 'adventure' ? 'adventure' : 'story'}.
 
 <critical_constraints>
-# HARD RULES (Absolute Priority)
-1. **NEVER write dialogue, actions, decisions, or internal thoughts for ${userName}**
-2. **You control NPCs, environment, and plot—never ${userName}'s character**
-3. **End with a natural opening for ${userName} to act or respond—NOT a question, but a situation that invites action**
-4. **Write 3-4 paragraphs of evocative prose**
+# ABSOLUTE RULES - VIOLATION IS FAILURE
+1. **NEVER write what ${userName} does** - no actions, movements, or gestures
+2. **NEVER write what ${userName} says** - no dialogue or speech
+3. **NEVER write what ${userName} thinks or feels** - no internal states, emotions, or reactions
+4. **NEVER write what ${userName} perceives** - avoid "you see", "you notice", "you hear" constructions
+5. **Only describe the environment, NPCs, and situation** - let ${userName} decide how to engage
 </critical_constraints>
 
-<writing_style>
-- ${povInstruction}
+<what_to_write>
+Write ONLY:
+- The physical environment (sights, sounds, smells, textures)
+- What NPCs are doing, saying, or how they're positioned
+- Objects, details, and atmosphere of the scene
+- Tension, stakes, or interesting elements present
+
+Do NOT write:
+- "${userName} walks into..." / "${userName} looks at..." / "${userName} feels..."
+- "You notice..." / "You see..." / "You sense..."
+- Any action, perception, or internal state belonging to ${userName}
+</what_to_write>
+
+<style>
 - ${tenseInstruction}
 - Tone: ${writingStyle.tone || 'immersive and engaging'}
-- Anchor every scene in concrete physical detail—sights, sounds, textures, smells
-- Avoid abstract emotion words without physical correlatives (not "felt nervous" but show the physical symptom)
-- Vary sentence rhythm: fragments for impact, longer clauses when moments need weight
-</writing_style>
+- 2-3 paragraphs of environmental and situational detail
+- Concrete sensory details, not abstractions
+</style>
 
-<ending_instruction>
-End the scene with ${userName} in a moment of potential action—an NPC waiting for response, a door that could be opened, a sound that demands investigation, an object within reach. The ending should be a **pregnant pause**, not a question. Create narrative tension that naturally invites ${userName}'s next move without explicitly asking "What do you do?"
-</ending_instruction>
+<ending>
+End by presenting a situation that naturally invites ${userName} to act:
+- An NPC looking expectantly, mid-conversation
+- A door ajar, a sound from within
+- An object of interest within reach
+- A choice point or moment of tension
 
-<forbidden_patterns>
-- Writing any actions, dialogue, or thoughts for ${userName}
-- Ending with a direct question to ${userName}
-- Melodramatic phrases: hearts shattering, waves of emotion, breath catching
-- Summarizing what ${userName} thinks or feels
-- Resolving tension—leave it hanging for ${userName} to engage with
-</forbidden_patterns>
+NO questions. NO "What do you do?" Just the pregnant moment.
+</ending>
 
-You MUST respond with valid JSON matching this schema:
+Respond with valid JSON:
 {
-  "scene": "string - the opening narrative (3-4 paragraphs of prose)",
-  "title": "string - a suggested story title if none provided, or confirm the given title",
+  "scene": "string - the opening (2-3 paragraphs describing environment/situation, NOT ${userName}'s actions)",
+  "title": "string - story title",
   "initialLocation": {
-    "name": "string - where the story begins",
-    "description": "string - 1-2 sentences describing this location"
+    "name": "string - location name",
+    "description": "string - 1-2 sentences"
   }
 }`
       },
       {
         role: 'user',
-        content: `Create the opening scene for this story:
+        content: `Create the opening scene:
 
 TITLE: ${title || '(suggest one)'}
 
@@ -410,20 +510,14 @@ ${expandedSetting?.description || wizardData.settingSeed}
 
 ATMOSPHERE: ${expandedSetting?.atmosphere || 'mysterious'}
 
-PROTAGONIST (${userName}):
-${protagonist?.description || 'An adventurer about to begin their journey.'}
-${protagonist?.background ? `Background: ${protagonist.background}` : ''}
-${protagonist?.motivation ? `Motivation: ${protagonist.motivation}` : ''}
+PROTAGONIST: ${userName}
+${protagonist?.description || ''}
 
-${characters && characters.length > 0 ? `
-SUPPORTING CHARACTERS (may or may not appear in opening):
+${characters && characters.length > 0 ? `NPCs WHO MAY APPEAR:
 ${characters.map(c => `- ${c.name} (${c.role}): ${c.description}`).join('\n')}
 ` : ''}
 
-Write an engaging opening scene that:
-1. Establishes the world through sensory detail
-2. Places ${userName} in an interesting situation
-3. Ends with a natural opening for ${userName} to take action (NOT a question)`
+Describe the environment and situation. Do NOT write anything ${userName} does, says, thinks, or perceives. End with a moment that invites action.`
       }
     ];
 
@@ -494,28 +588,41 @@ Write an engaging opening scene that:
     const messages: Message[] = [
       {
         role: 'system',
-        content: `You are a master storyteller crafting the opening scene of an interactive ${genreLabel} ${mode === 'adventure' ? 'adventure' : 'story'}.
+        content: `You are crafting the opening scene of an interactive ${genreLabel} ${mode === 'adventure' ? 'adventure' : 'story'}.
 
 <critical_constraints>
-# HARD RULES
-1. **NEVER write dialogue, actions, decisions, or internal thoughts for ${userName}**
-2. **You control NPCs, environment, and plot—never ${userName}'s character**
-3. **End with a natural opening for ${userName} to act—NOT a question**
+# ABSOLUTE RULES - VIOLATION IS FAILURE
+1. **NEVER write what ${userName} does** - no actions, movements, or gestures
+2. **NEVER write what ${userName} says** - no dialogue or speech
+3. **NEVER write what ${userName} thinks or feels** - no internal states, emotions, or reactions
+4. **NEVER write what ${userName} perceives** - avoid "you see", "you notice", "you hear"
+5. **Only describe the environment, NPCs, and situation**
 </critical_constraints>
 
-<writing_style>
-- ${povInstruction}
+<what_to_write>
+Write ONLY:
+- The physical environment (sights, sounds, smells, textures)
+- What NPCs are doing, saying, or how they're positioned
+- Objects, details, and atmosphere of the scene
+
+Do NOT write:
+- "${userName} walks..." / "${userName} looks..." / "${userName} feels..."
+- "You notice..." / "You see..." / "You sense..."
+- Any action or perception belonging to ${userName}
+</what_to_write>
+
+<style>
 - ${tenseInstruction}
 - Tone: ${writingStyle.tone || 'immersive and engaging'}
-- Anchor scenes in concrete physical detail
-- Vary sentence rhythm for impact
-</writing_style>
+- 2-3 paragraphs of environmental and situational detail
+</style>
 
-<ending_instruction>
-End with ${userName} in a moment of potential action—a situation that naturally invites their next move without asking "What do you do?"
-</ending_instruction>
+<ending>
+End with a situation inviting action: an NPC waiting, a door ajar, an object within reach.
+NO questions. Just the pregnant moment.
+</ending>
 
-Write ONLY the prose narrative. No JSON, no metadata, just the story opening (3-4 paragraphs).`
+Write ONLY prose. No JSON, no metadata.`
       },
       {
         role: 'user',
@@ -524,10 +631,9 @@ Write ONLY the prose narrative. No JSON, no metadata, just the story opening (3-
 SETTING: ${expandedSetting?.name || 'Unknown World'}
 ${expandedSetting?.description || wizardData.settingSeed}
 
-PROTAGONIST (${userName}):
-${protagonist?.description || 'An adventurer about to begin their journey.'}
+PROTAGONIST: ${userName}
 
-Write an evocative opening that places ${userName} in an interesting situation, ending with a natural opening for them to act.`
+Describe the environment and situation only. Do NOT write anything ${userName} does, says, thinks, or perceives.`
       }
     ];
 

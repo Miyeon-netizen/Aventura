@@ -63,7 +63,16 @@
   let supportingCharacters = $state<GeneratedCharacter[]>([]);
   let isGeneratingProtagonist = $state(false);
   let isGeneratingCharacters = $state(false);
+  let isElaboratingCharacter = $state(false);
   let protagonistError = $state<string | null>(null);
+
+  // Manual character input
+  let manualCharacterName = $state('');
+  let manualCharacterDescription = $state('');
+  let manualCharacterBackground = $state('');
+  let manualCharacterMotivation = $state('');
+  let manualCharacterTraits = $state('');
+  let showManualInput = $state(true); // Show manual input by default
 
   // Step 5: Writing Style
   let selectedPOV = $state<POV>('second');
@@ -186,6 +195,77 @@
     } finally {
       isGeneratingProtagonist = false;
     }
+  }
+
+  // Step 4: Use manual character input directly
+  function useManualCharacter() {
+    if (!manualCharacterName.trim()) return;
+
+    protagonist = {
+      name: manualCharacterName.trim(),
+      description: manualCharacterDescription.trim() || 'A mysterious figure.',
+      background: manualCharacterBackground.trim() || '',
+      motivation: manualCharacterMotivation.trim() || '',
+      traits: manualCharacterTraits.trim()
+        ? manualCharacterTraits.split(',').map(t => t.trim()).filter(Boolean)
+        : [],
+    };
+    showManualInput = false;
+  }
+
+  // Step 4: Elaborate on manual character input with AI
+  async function elaborateCharacter() {
+    if (isElaboratingCharacter) return;
+
+    // Need at least a name or some input
+    const hasInput = manualCharacterName.trim() ||
+      manualCharacterDescription.trim() ||
+      manualCharacterBackground.trim() ||
+      manualCharacterMotivation.trim();
+
+    if (!hasInput) {
+      protagonistError = 'Please enter at least some character details to elaborate on.';
+      return;
+    }
+
+    isElaboratingCharacter = true;
+    protagonistError = null;
+
+    try {
+      protagonist = await scenarioService.elaborateCharacter(
+        {
+          name: manualCharacterName.trim() || undefined,
+          description: manualCharacterDescription.trim() || undefined,
+          background: manualCharacterBackground.trim() || undefined,
+          motivation: manualCharacterMotivation.trim() || undefined,
+          traits: manualCharacterTraits.trim()
+            ? manualCharacterTraits.split(',').map(t => t.trim()).filter(Boolean)
+            : undefined,
+        },
+        expandedSetting,
+        selectedGenre,
+        customGenre || undefined
+      );
+      showManualInput = false;
+    } catch (error) {
+      console.error('Failed to elaborate character:', error);
+      protagonistError = error instanceof Error ? error.message : 'Failed to elaborate character';
+    } finally {
+      isElaboratingCharacter = false;
+    }
+  }
+
+  // Step 4: Edit the generated character (switch back to manual input)
+  function editCharacter() {
+    if (protagonist) {
+      manualCharacterName = protagonist.name || '';
+      manualCharacterDescription = protagonist.description || '';
+      manualCharacterBackground = protagonist.background || '';
+      manualCharacterMotivation = protagonist.motivation || '';
+      manualCharacterTraits = protagonist.traits?.join(', ') || '';
+    }
+    showManualInput = true;
+    protagonist = null;
   }
 
   // Step 4: Generate Supporting Characters (Creative Mode)
@@ -540,28 +620,134 @@
                 <h3 class="font-medium text-surface-100">
                   {selectedMode === 'adventure' ? 'Your Character' : 'Main Character'}
                 </h3>
-                <button
-                  class="btn btn-secondary btn-sm flex items-center gap-1"
-                  onclick={generateProtagonist}
-                  disabled={isGeneratingProtagonist}
-                >
-                  {#if isGeneratingProtagonist}
-                    <Loader2 class="h-3 w-3 animate-spin" />
-                    Generating...
-                  {:else}
-                    <User class="h-3 w-3" />
-                    {protagonist ? 'Regenerate' : 'Generate Character'}
-                  {/if}
-                </button>
               </div>
 
               {#if protagonistError}
                 <p class="text-sm text-red-400">{protagonistError}</p>
               {/if}
 
-              {#if protagonist}
+              {#if showManualInput && !protagonist}
+                <!-- Manual Character Input Form -->
+                <div class="card bg-surface-900 p-4 space-y-4">
+                  <p class="text-sm text-surface-400">
+                    Enter your character details below. You can use them as-is, have AI elaborate on them, or generate a completely new character.
+                  </p>
+
+                  <div>
+                    <label class="mb-1 block text-xs font-medium text-surface-400">Character Name</label>
+                    <input
+                      type="text"
+                      bind:value={manualCharacterName}
+                      placeholder="e.g., Kira, Marcus, Zephyr..."
+                      class="input"
+                    />
+                  </div>
+
+                  <div>
+                    <label class="mb-1 block text-xs font-medium text-surface-400">Description</label>
+                    <textarea
+                      bind:value={manualCharacterDescription}
+                      placeholder="Physical appearance, demeanor, notable features..."
+                      class="input min-h-[60px] resize-none"
+                      rows="2"
+                    ></textarea>
+                  </div>
+
+                  <div>
+                    <label class="mb-1 block text-xs font-medium text-surface-400">Background</label>
+                    <textarea
+                      bind:value={manualCharacterBackground}
+                      placeholder="Where they come from, their history..."
+                      class="input min-h-[60px] resize-none"
+                      rows="2"
+                    ></textarea>
+                  </div>
+
+                  <div>
+                    <label class="mb-1 block text-xs font-medium text-surface-400">Motivation</label>
+                    <input
+                      type="text"
+                      bind:value={manualCharacterMotivation}
+                      placeholder="What drives them? What do they seek?"
+                      class="input"
+                    />
+                  </div>
+
+                  <div>
+                    <label class="mb-1 block text-xs font-medium text-surface-400">Traits (comma-separated)</label>
+                    <input
+                      type="text"
+                      bind:value={manualCharacterTraits}
+                      placeholder="e.g., brave, curious, stubborn, compassionate..."
+                      class="input"
+                    />
+                  </div>
+
+                  <div class="flex flex-wrap gap-2 pt-2 border-t border-surface-700">
+                    <button
+                      class="btn btn-secondary btn-sm flex items-center gap-1"
+                      onclick={useManualCharacter}
+                      disabled={!manualCharacterName.trim()}
+                      title="Use character as entered"
+                    >
+                      <User class="h-3 w-3" />
+                      Use As-Is
+                    </button>
+                    <button
+                      class="btn btn-primary btn-sm flex items-center gap-1"
+                      onclick={elaborateCharacter}
+                      disabled={isElaboratingCharacter || (!manualCharacterName.trim() && !manualCharacterDescription.trim() && !manualCharacterBackground.trim())}
+                      title="Have AI expand on your character details"
+                    >
+                      {#if isElaboratingCharacter}
+                        <Loader2 class="h-3 w-3 animate-spin" />
+                        Elaborating...
+                      {:else}
+                        <Sparkles class="h-3 w-3" />
+                        Elaborate with AI
+                      {/if}
+                    </button>
+                    <button
+                      class="btn btn-secondary btn-sm flex items-center gap-1"
+                      onclick={generateProtagonist}
+                      disabled={isGeneratingProtagonist}
+                      title="Generate a completely new character from scratch"
+                    >
+                      {#if isGeneratingProtagonist}
+                        <Loader2 class="h-3 w-3 animate-spin" />
+                        Generating...
+                      {:else}
+                        <RefreshCw class="h-3 w-3" />
+                        Generate New
+                      {/if}
+                    </button>
+                  </div>
+                </div>
+              {:else if protagonist}
+                <!-- Generated/Final Character Display -->
                 <div class="card bg-surface-900 p-4 space-y-2">
-                  <h4 class="font-semibold text-surface-100">{protagonist.name}</h4>
+                  <div class="flex items-start justify-between">
+                    <h4 class="font-semibold text-surface-100">{protagonist.name}</h4>
+                    <div class="flex gap-1">
+                      <button
+                        class="text-xs text-surface-400 hover:text-surface-200 flex items-center gap-1"
+                        onclick={editCharacter}
+                        title="Edit character details"
+                      >
+                        <PenTool class="h-3 w-3" />
+                        Edit
+                      </button>
+                      <button
+                        class="text-xs text-accent-400 hover:text-accent-300 flex items-center gap-1 ml-2"
+                        onclick={generateProtagonist}
+                        disabled={isGeneratingProtagonist}
+                        title="Generate a different character"
+                      >
+                        <RefreshCw class="h-3 w-3" />
+                        Regenerate
+                      </button>
+                    </div>
+                  </div>
                   <p class="text-sm text-surface-300">{protagonist.description}</p>
                   {#if protagonist.background}
                     <p class="text-sm text-surface-400"><strong>Background:</strong> {protagonist.background}</p>
@@ -569,16 +755,39 @@
                   {#if protagonist.motivation}
                     <p class="text-sm text-surface-400"><strong>Motivation:</strong> {protagonist.motivation}</p>
                   {/if}
-                  <div class="flex flex-wrap gap-1">
-                    {#each protagonist.traits as trait}
-                      <span class="px-2 py-0.5 rounded-full bg-primary-900/50 text-xs text-primary-400">{trait}</span>
-                    {/each}
-                  </div>
+                  {#if protagonist.traits && protagonist.traits.length > 0}
+                    <div class="flex flex-wrap gap-1">
+                      {#each protagonist.traits as trait}
+                        <span class="px-2 py-0.5 rounded-full bg-primary-900/50 text-xs text-primary-400">{trait}</span>
+                      {/each}
+                    </div>
+                  {/if}
                 </div>
               {:else}
-                <p class="text-sm text-surface-500 italic">
-                  Click "Generate Character" to create a protagonist, or skip to use a default.
-                </p>
+                <!-- Fallback: Show generate button -->
+                <div class="card bg-surface-900 border-dashed border-2 border-surface-600 p-6 text-center">
+                  <p class="text-surface-400 mb-3">Enter your own character details or generate one with AI</p>
+                  <div class="flex justify-center gap-2">
+                    <button
+                      class="btn btn-secondary btn-sm"
+                      onclick={() => showManualInput = true}
+                    >
+                      Enter Manually
+                    </button>
+                    <button
+                      class="btn btn-primary btn-sm flex items-center gap-1"
+                      onclick={generateProtagonist}
+                      disabled={isGeneratingProtagonist}
+                    >
+                      {#if isGeneratingProtagonist}
+                        <Loader2 class="h-3 w-3 animate-spin" />
+                      {:else}
+                        <Sparkles class="h-3 w-3" />
+                      {/if}
+                      Generate Character
+                    </button>
+                  </div>
+                </div>
               {/if}
             </div>
 
