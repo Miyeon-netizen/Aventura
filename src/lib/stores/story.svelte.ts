@@ -1,4 +1,4 @@
-import type { Story, StoryEntry, Character, Location, Item, StoryBeat, Chapter, Checkpoint, MemoryConfig, StoryMode } from '$lib/types';
+import type { Story, StoryEntry, Character, Location, Item, StoryBeat, Chapter, Checkpoint, MemoryConfig, StoryMode, StorySettings } from '$lib/types';
 import { database } from '$lib/services/database';
 import { BUILTIN_TEMPLATES } from '$lib/services/templates';
 import type { ClassificationResult } from '$lib/services/ai/classifier';
@@ -49,6 +49,14 @@ class StoryStore {
 
   get activeCharacters(): Character[] {
     return this.characters.filter(c => c.status === 'active');
+  }
+
+  get protagonist(): Character | undefined {
+    return this.characters.find(c => c.relationship === 'self');
+  }
+
+  get pov(): 'first' | 'second' | 'third' {
+    return this.currentStory?.settings?.pov ?? 'second';
   }
 
   get inventoryItems(): Item[] {
@@ -164,7 +172,8 @@ class StoryStore {
     title: string,
     templateId: string,
     genre?: string,
-    mode: StoryMode = 'adventure'
+    mode: StoryMode = 'adventure',
+    settings?: StorySettings
   ): Promise<Story> {
     const template = BUILTIN_TEMPLATES.find(t => t.id === templateId);
 
@@ -176,7 +185,7 @@ class StoryStore {
       genre: genre ?? null,
       templateId,
       mode,
-      settings: null,
+      settings: settings ?? null,
       memoryConfig: DEFAULT_MEMORY_CONFIG,
     });
 

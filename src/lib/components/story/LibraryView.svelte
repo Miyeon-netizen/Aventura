@@ -3,13 +3,14 @@
   import { ui } from '$lib/stores/ui.svelte';
   import { templateService, BUILTIN_TEMPLATES } from '$lib/services/templates';
   import { exportService } from '$lib/services/export';
-  import { Plus, BookOpen, Trash2, Clock, Sparkles, Wand2, Rocket, Search, Skull, Heart, FileText, Upload, Sword, Feather } from 'lucide-svelte';
-  import type { Template, StoryMode } from '$lib/types';
+  import { Plus, BookOpen, Trash2, Clock, Sparkles, Wand2, Rocket, Search, Skull, Heart, FileText, Upload, Sword, Feather, User } from 'lucide-svelte';
+  import type { Template, StoryMode, POV } from '$lib/types';
 
   let showNewStoryModal = $state(false);
   let newStoryTitle = $state('');
   let selectedTemplateId = $state<string | null>(null);
   let selectedMode = $state<StoryMode>('adventure');
+  let selectedPOV = $state<POV>('second');
   let step = $state<'template' | 'details'>('template');
 
   // Derived template based on selection
@@ -50,7 +51,8 @@
       newStoryTitle.trim(),
       selectedTemplateId,
       template?.genre ?? undefined,
-      selectedMode
+      selectedMode,
+      { pov: selectedPOV }
     );
 
     await story.loadStory(newStoryData.id);
@@ -63,6 +65,7 @@
     newStoryTitle = '';
     selectedTemplateId = null;
     selectedMode = 'adventure';
+    selectedPOV = 'second';
     step = 'template';
   }
 
@@ -315,6 +318,42 @@
                 <p class="text-xs text-surface-400">
                   You are the author. Direct the story and craft the narrative.
                 </p>
+              </button>
+            </div>
+          </div>
+
+          <!-- POV Selection -->
+          <div>
+            <label class="mb-2 block text-sm font-medium text-surface-300">
+              Point of View
+            </label>
+            <div class="grid grid-cols-3 gap-2">
+              <button
+                class="card p-3 text-center transition-all"
+                class:ring-2={selectedPOV === 'first'}
+                class:ring-accent-500={selectedPOV === 'first'}
+                onclick={() => selectedPOV = 'first'}
+              >
+                <span class="block font-medium text-surface-100">1st Person</span>
+                <span class="text-xs text-surface-400">I say...</span>
+              </button>
+              <button
+                class="card p-3 text-center transition-all"
+                class:ring-2={selectedPOV === 'second'}
+                class:ring-accent-500={selectedPOV === 'second'}
+                onclick={() => selectedPOV = 'second'}
+              >
+                <span class="block font-medium text-surface-100">2nd Person</span>
+                <span class="text-xs text-surface-400">You say...</span>
+              </button>
+              <button
+                class="card p-3 text-center transition-all"
+                class:ring-2={selectedPOV === 'third'}
+                class:ring-accent-500={selectedPOV === 'third'}
+                onclick={() => selectedPOV = 'third'}
+              >
+                <span class="block font-medium text-surface-100">3rd Person</span>
+                <span class="text-xs text-surface-400">Name says...</span>
               </button>
             </div>
           </div>

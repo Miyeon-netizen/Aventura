@@ -130,12 +130,37 @@
     log('Chapter created', { number: chapterNumber, title: chapter.title });
   }
 
-  const actionPrefixes = {
-    do: 'You ',
-    say: 'You say "',
-    think: 'You think to yourself, "',
-    story: '',
-  };
+  // Get protagonist name for third person POV
+  const protagonistName = $derived(story.protagonist?.name ?? 'The protagonist');
+  const pov = $derived(story.pov);
+
+  // Generate action prefixes based on POV
+  const actionPrefixes = $derived.by(() => {
+    switch (pov) {
+      case 'first':
+        return {
+          do: 'I ',
+          say: 'I say, "',
+          think: 'I think to myself, "',
+          story: '',
+        };
+      case 'third':
+        return {
+          do: `${protagonistName} `,
+          say: `${protagonistName} says, "`,
+          think: `${protagonistName} thinks, "`,
+          story: '',
+        };
+      case 'second':
+      default:
+        return {
+          do: 'You ',
+          say: 'You say, "',
+          think: 'You think to yourself, "',
+          story: '',
+        };
+    }
+  });
 
   const actionSuffixes = {
     do: '',

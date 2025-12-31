@@ -1,6 +1,7 @@
 // Core entity types for Aventura
 
 export type StoryMode = 'adventure' | 'creative-writing';
+export type POV = 'first' | 'second' | 'third';
 
 export interface Story {
   id: string;
@@ -28,6 +29,7 @@ export interface StorySettings {
   temperature?: number;
   maxTokens?: number;
   systemPromptOverride?: string;
+  pov?: POV;
 }
 
 export interface StoryEntry {
