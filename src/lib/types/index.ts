@@ -1,14 +1,26 @@
 // Core entity types for Aventura
 
+export type StoryMode = 'adventure' | 'creative-writing';
+
 export interface Story {
   id: string;
   title: string;
   description: string | null;
   genre: string | null;
   templateId: string | null;
+  mode: StoryMode;
   createdAt: number;
   updatedAt: number;
   settings: StorySettings | null;
+  memoryConfig: MemoryConfig | null;
+}
+
+export interface MemoryConfig {
+  chapterThreshold: number;  // Messages before considering a chapter (default: 50)
+  chapterBuffer: number;     // Recent messages protected from chapter end (default: 10)
+  autoSummarize: boolean;    // Enable auto-summarization
+  enableRetrieval: boolean;  // Enable memory retrieval
+  maxChaptersPerRetrieval: number; // Max chapters to retrieve per query
 }
 
 export interface StorySettings {
@@ -96,6 +108,56 @@ export interface TemplateInitialState {
   startingLocation?: Partial<Location>;
   initialItems?: Partial<Item>[];
   openingScene?: string;
+}
+
+// Chapter for memory system
+export interface Chapter {
+  id: string;
+  storyId: string;
+  number: number;
+  title: string | null;
+
+  // Boundaries
+  startEntryId: string;
+  endEntryId: string;
+  entryCount: number;
+
+  // Content
+  summary: string;
+
+  // Retrieval optimization metadata
+  keywords: string[];
+  characters: string[];   // Character names mentioned
+  locations: string[];    // Location names mentioned
+  plotThreads: string[];
+  emotionalTone: string | null;
+
+  // Hierarchy (for future arc support)
+  arcId: string | null;
+
+  createdAt: number;
+}
+
+// Checkpoint for save/restore functionality
+export interface Checkpoint {
+  id: string;
+  storyId: string;
+  name: string;
+
+  // Snapshot boundaries
+  lastEntryId: string;
+  lastEntryPreview: string | null;
+  entryCount: number;
+
+  // Deep copy of state
+  entriesSnapshot: StoryEntry[];
+  charactersSnapshot: Character[];
+  locationsSnapshot: Location[];
+  itemsSnapshot: Item[];
+  storyBeatsSnapshot: StoryBeat[];
+  chaptersSnapshot: Chapter[];
+
+  createdAt: number;
 }
 
 // UI State types

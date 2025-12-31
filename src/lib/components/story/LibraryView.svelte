@@ -3,12 +3,13 @@
   import { ui } from '$lib/stores/ui.svelte';
   import { templateService, BUILTIN_TEMPLATES } from '$lib/services/templates';
   import { exportService } from '$lib/services/export';
-  import { Plus, BookOpen, Trash2, Clock, Sparkles, Wand2, Rocket, Search, Skull, Heart, FileText, Upload } from 'lucide-svelte';
-  import type { Template } from '$lib/types';
+  import { Plus, BookOpen, Trash2, Clock, Sparkles, Wand2, Rocket, Search, Skull, Heart, FileText, Upload, Sword, Feather } from 'lucide-svelte';
+  import type { Template, StoryMode } from '$lib/types';
 
   let showNewStoryModal = $state(false);
   let newStoryTitle = $state('');
   let selectedTemplateId = $state<string | null>(null);
+  let selectedMode = $state<StoryMode>('adventure');
   let step = $state<'template' | 'details'>('template');
 
   // Derived template based on selection
@@ -48,7 +49,8 @@
     const newStoryData = await story.createStoryFromTemplate(
       newStoryTitle.trim(),
       selectedTemplateId,
-      template?.genre ?? undefined
+      template?.genre ?? undefined,
+      selectedMode
     );
 
     await story.loadStory(newStoryData.id);
@@ -60,6 +62,7 @@
     showNewStoryModal = false;
     newStoryTitle = '';
     selectedTemplateId = null;
+    selectedMode = 'adventure';
     step = 'template';
   }
 
@@ -274,17 +277,61 @@
           </button>
         </div>
 
-        <div class="py-4">
-          <label class="mb-2 block text-sm font-medium text-surface-300">
-            Story Title
-          </label>
-          <input
-            type="text"
-            bind:value={newStoryTitle}
-            placeholder="Enter a title for your adventure..."
-            class="input"
-            onkeydown={(e) => e.key === 'Enter' && newStoryTitle.trim() && createNewStory()}
-          />
+        <div class="py-4 space-y-4">
+          <!-- Mode Selection -->
+          <div>
+            <label class="mb-2 block text-sm font-medium text-surface-300">
+              Story Mode
+            </label>
+            <div class="grid grid-cols-2 gap-3">
+              <button
+                class="card p-4 text-left transition-all"
+                class:ring-2={selectedMode === 'adventure'}
+                class:ring-primary-500={selectedMode === 'adventure'}
+                onclick={() => selectedMode = 'adventure'}
+              >
+                <div class="flex items-center gap-3 mb-2">
+                  <div class="rounded-lg bg-primary-900/50 p-2">
+                    <Sword class="h-5 w-5 text-primary-400" />
+                  </div>
+                  <span class="font-medium text-surface-100">Adventure</span>
+                </div>
+                <p class="text-xs text-surface-400">
+                  You are the protagonist. Explore, interact, and make choices.
+                </p>
+              </button>
+              <button
+                class="card p-4 text-left transition-all"
+                class:ring-2={selectedMode === 'creative-writing'}
+                class:ring-primary-500={selectedMode === 'creative-writing'}
+                onclick={() => selectedMode = 'creative-writing'}
+              >
+                <div class="flex items-center gap-3 mb-2">
+                  <div class="rounded-lg bg-secondary-900/50 p-2">
+                    <Feather class="h-5 w-5 text-secondary-400" />
+                  </div>
+                  <span class="font-medium text-surface-100">Creative Writing</span>
+                </div>
+                <p class="text-xs text-surface-400">
+                  You are the author. Direct the story and craft the narrative.
+                </p>
+              </button>
+            </div>
+          </div>
+
+          <!-- Story Title -->
+          <div>
+            <label class="mb-2 block text-sm font-medium text-surface-300">
+              Story Title
+            </label>
+            <input
+              type="text"
+              bind:value={newStoryTitle}
+              placeholder={selectedMode === 'adventure' ? 'Enter a title for your adventure...' : 'Enter a title for your story...'}
+              class="input"
+              onkeydown={(e) => e.key === 'Enter' && newStoryTitle.trim() && createNewStory()}
+            />
+          </div>
 
           {#if selectedTemplate?.initialState?.openingScene}
             <div class="mt-4">
@@ -307,8 +354,13 @@
             onclick={createNewStory}
             disabled={!newStoryTitle.trim()}
           >
-            <Sparkles class="h-4 w-4" />
-            Begin Adventure
+            {#if selectedMode === 'adventure'}
+              <Sword class="h-4 w-4" />
+              Begin Adventure
+            {:else}
+              <Feather class="h-4 w-4" />
+              Start Writing
+            {/if}
           </button>
         </div>
       {/if}

@@ -1,6 +1,13 @@
 import type { AIProvider, GenerationRequest, GenerationResponse, StreamChunk, ModelInfo, Message } from './types';
 
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
+const DEBUG = true;
+
+function log(...args: any[]) {
+  if (DEBUG) {
+    console.log('[OpenRouter]', ...args);
+  }
+}
 
 export class OpenRouterProvider implements AIProvider {
   id = 'openrouter';
@@ -13,6 +20,24 @@ export class OpenRouterProvider implements AIProvider {
   }
 
   async generateResponse(request: GenerationRequest): Promise<GenerationResponse> {
+    log('generateResponse called', {
+      model: request.model,
+      messagesCount: request.messages.length,
+      temperature: request.temperature,
+      maxTokens: request.maxTokens,
+    });
+
+    const requestBody = {
+      model: request.model,
+      messages: request.messages,
+      temperature: request.temperature ?? 0.8,
+      max_tokens: request.maxTokens ?? 1024,
+      stop: request.stopSequences,
+      ...request.extraBody, // Spread provider-specific options (e.g., reasoning)
+    };
+
+    log('Sending request to OpenRouter...');
+
     const response = await fetch(OPENROUTER_API_URL, {
       method: 'POST',
       headers: {
@@ -21,21 +46,23 @@ export class OpenRouterProvider implements AIProvider {
         'HTTP-Referer': 'https://aventura.app',
         'X-Title': 'Aventura',
       },
-      body: JSON.stringify({
-        model: request.model,
-        messages: request.messages,
-        temperature: request.temperature ?? 0.8,
-        max_tokens: request.maxTokens ?? 1024,
-        stop: request.stopSequences,
-      }),
+      body: JSON.stringify(requestBody),
     });
+
+    log('Response received', { status: response.status, ok: response.ok });
 
     if (!response.ok) {
       const error = await response.text();
+      log('API error', { status: response.status, error });
       throw new Error(`OpenRouter API error: ${response.status} - ${error}`);
     }
 
     const data = await response.json();
+    log('Response parsed', {
+      model: data.model,
+      contentLength: data.choices[0]?.message?.content?.length ?? 0,
+      usage: data.usage,
+    });
 
     return {
       content: data.choices[0]?.message?.content ?? '',
@@ -49,6 +76,15 @@ export class OpenRouterProvider implements AIProvider {
   }
 
   async *streamResponse(request: GenerationRequest): AsyncIterable<StreamChunk> {
+    log('streamResponse called', {
+      model: request.model,
+      messagesCount: request.messages.length,
+      temperature: request.temperature,
+      maxTokens: request.maxTokens,
+    });
+
+    log('Sending streaming request to OpenRouter...');
+
     const response = await fetch(OPENROUTER_API_URL, {
       method: 'POST',
       headers: {
@@ -67,22 +103,32 @@ export class OpenRouterProvider implements AIProvider {
       }),
     });
 
+    log('Stream response received', { status: response.status, ok: response.ok });
+
     if (!response.ok) {
       const error = await response.text();
+      log('Stream API error', { status: response.status, error });
       throw new Error(`OpenRouter API error: ${response.status} - ${error}`);
     }
 
     const reader = response.body?.getReader();
     if (!reader) {
+      log('No response body available');
       throw new Error('No response body');
     }
 
+    log('Starting to read stream...');
+
     const decoder = new TextDecoder();
     let buffer = '';
+    let chunkCount = 0;
 
     while (true) {
       const { done, value } = await reader.read();
-      if (done) break;
+      if (done) {
+        log('Stream reader done');
+        break;
+      }
 
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split('\n');
@@ -92,6 +138,7 @@ export class OpenRouterProvider implements AIProvider {
         if (line.startsWith('data: ')) {
           const data = line.slice(6);
           if (data === '[DONE]') {
+            log('Received [DONE] signal');
             yield { content: '', done: true };
             return;
           }
@@ -100,22 +147,36 @@ export class OpenRouterProvider implements AIProvider {
             const parsed = JSON.parse(data);
             const content = parsed.choices[0]?.delta?.content ?? '';
             if (content) {
+              chunkCount++;
+              if (chunkCount <= 3) {
+                log('Stream chunk received', { chunkCount, contentLength: content.length });
+              }
               yield { content, done: false };
             }
-          } catch {
+          } catch (e) {
             // Ignore parsing errors for incomplete JSON
+            log('JSON parse error (may be incomplete):', data.substring(0, 50));
           }
         }
       }
     }
+
+    log('Stream finished', { totalChunks: chunkCount });
   }
 
   async listModels(): Promise<ModelInfo[]> {
+    log('listModels called');
+
     // The models endpoint is public and doesn't require authentication
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+    const timeoutId = setTimeout(() => {
+      log('Request timeout triggered');
+      controller.abort();
+    }, 15000); // 15 second timeout
 
     try {
+      log('Fetching models from OpenRouter API...');
+
       const response = await fetch('https://openrouter.ai/api/v1/models', {
         method: 'GET',
         headers: {
@@ -126,18 +187,22 @@ export class OpenRouterProvider implements AIProvider {
 
       clearTimeout(timeoutId);
 
+      log('Models response received', { status: response.status, ok: response.ok });
+
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('OpenRouter models API error:', response.status, errorText);
+        log('Models API error', { status: response.status, error: errorText });
         throw new Error(`Failed to fetch models: ${response.status}`);
       }
 
       const json = await response.json();
 
       if (!json.data || !Array.isArray(json.data)) {
-        console.error('Unexpected API response structure:', json);
+        log('Unexpected API response structure', { keys: Object.keys(json) });
         throw new Error('Invalid API response structure');
       }
+
+      log('Models fetched successfully', { count: json.data.length });
 
       return json.data.map((model: any) => ({
         id: model.id,
@@ -152,8 +217,10 @@ export class OpenRouterProvider implements AIProvider {
     } catch (error) {
       clearTimeout(timeoutId);
       if (error instanceof Error && error.name === 'AbortError') {
+        log('Request timed out after 15 seconds');
         throw new Error('Request timed out');
       }
+      log('listModels error', error);
       throw error;
     }
   }

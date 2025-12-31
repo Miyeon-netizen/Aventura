@@ -9,6 +9,7 @@ export interface GenerationRequest {
   temperature?: number;
   maxTokens?: number;
   stopSequences?: string[];
+  extraBody?: Record<string, unknown>; // For provider-specific options like reasoning
 }
 
 export interface GenerationResponse {

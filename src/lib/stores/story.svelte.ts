@@ -1,6 +1,27 @@
-import type { Story, StoryEntry, Character, Location, Item, StoryBeat } from '$lib/types';
+import type { Story, StoryEntry, Character, Location, Item, StoryBeat, Chapter, Checkpoint, MemoryConfig, StoryMode } from '$lib/types';
 import { database } from '$lib/services/database';
 import { BUILTIN_TEMPLATES } from '$lib/services/templates';
+import type { ClassificationResult } from '$lib/services/ai/classifier';
+import { DEFAULT_MEMORY_CONFIG } from '$lib/services/ai/memory';
+import {
+  eventBus,
+  emitStoryLoaded,
+  emitModeChanged,
+  emitStateUpdated,
+  emitChapterCreated,
+  type CheckpointCreatedEvent,
+  type CheckpointRestoredEvent,
+  type StoryCreatedEvent,
+  type SaveCompleteEvent,
+} from '$lib/services/events';
+
+const DEBUG = true;
+
+function log(...args: any[]) {
+  if (DEBUG) {
+    console.log('[StoryStore]', ...args);
+  }
+}
 
 // Story Store using Svelte 5 runes
 class StoryStore {
@@ -13,6 +34,10 @@ class StoryStore {
   locations = $state<Location[]>([]);
   items = $state<Item[]>([]);
   storyBeats = $state<StoryBeat[]>([]);
+
+  // Memory system
+  chapters = $state<Chapter[]>([]);
+  checkpoints = $state<Checkpoint[]>([]);
 
   // Story library
   allStories = $state<Story[]>([]);
@@ -44,6 +69,25 @@ class StoryStore {
     }, 0);
   }
 
+  get memoryConfig(): MemoryConfig {
+    return this.currentStory?.memoryConfig || DEFAULT_MEMORY_CONFIG;
+  }
+
+  get storyMode(): StoryMode {
+    return this.currentStory?.mode || 'adventure';
+  }
+
+  get lastChapterEndIndex(): number {
+    if (this.chapters.length === 0) return 0;
+    const lastChapter = this.chapters[this.chapters.length - 1];
+    const endEntry = this.entries.find(e => e.id === lastChapter.endEntryId);
+    return endEntry ? this.entries.indexOf(endEntry) + 1 : 0;
+  }
+
+  get messagesSinceLastChapter(): number {
+    return this.entries.length - this.lastChapterEndIndex;
+  }
+
   // Load all stories for library view
   async loadAllStories(): Promise<void> {
     this.allStories = await database.getAllStories();
@@ -59,12 +103,14 @@ class StoryStore {
     this.currentStory = story;
 
     // Load all related data in parallel
-    const [entries, characters, locations, items, storyBeats] = await Promise.all([
+    const [entries, characters, locations, items, storyBeats, chapters, checkpoints] = await Promise.all([
       database.getStoryEntries(storyId),
       database.getCharacters(storyId),
       database.getLocations(storyId),
       database.getItems(storyId),
       database.getStoryBeats(storyId),
+      database.getChapters(storyId),
+      database.getCheckpoints(storyId),
     ]);
 
     this.entries = entries;
@@ -72,25 +118,54 @@ class StoryStore {
     this.locations = locations;
     this.items = items;
     this.storyBeats = storyBeats;
+    this.chapters = chapters;
+    this.checkpoints = checkpoints;
+
+    log('Story loaded', {
+      id: storyId,
+      mode: story.mode,
+      entries: entries.length,
+      chapters: chapters.length,
+      checkpoints: checkpoints.length,
+    });
+
+    // Emit event
+    emitStoryLoaded(storyId, story.mode);
   }
 
   // Create a new story
-  async createStory(title: string, templateId?: string, genre?: string): Promise<Story> {
+  async createStory(
+    title: string,
+    templateId?: string,
+    genre?: string,
+    mode: StoryMode = 'adventure'
+  ): Promise<Story> {
     const storyData = await database.createStory({
       id: crypto.randomUUID(),
       title,
       description: null,
       genre: genre ?? null,
       templateId: templateId ?? null,
+      mode,
       settings: null,
+      memoryConfig: DEFAULT_MEMORY_CONFIG,
     });
 
     this.allStories = [storyData, ...this.allStories];
+
+    // Emit event
+    eventBus.emit<StoryCreatedEvent>({ type: 'StoryCreated', storyId: storyData.id, mode });
+
     return storyData;
   }
 
   // Create a new story from a template with initialization
-  async createStoryFromTemplate(title: string, templateId: string, genre?: string): Promise<Story> {
+  async createStoryFromTemplate(
+    title: string,
+    templateId: string,
+    genre?: string,
+    mode: StoryMode = 'adventure'
+  ): Promise<Story> {
     const template = BUILTIN_TEMPLATES.find(t => t.id === templateId);
 
     // Create the base story
@@ -100,7 +175,9 @@ class StoryStore {
       description: template?.description ?? null,
       genre: genre ?? null,
       templateId,
+      mode,
       settings: null,
+      memoryConfig: DEFAULT_MEMORY_CONFIG,
     });
 
     this.allStories = [storyData, ...this.allStories];
@@ -169,6 +246,9 @@ class StoryStore {
         });
       }
     }
+
+    // Emit event
+    eventBus.emit<StoryCreatedEvent>({ type: 'StoryCreated', storyId: storyData.id, mode });
 
     return storyData;
   }
@@ -320,6 +400,226 @@ class StoryStore {
     return beat;
   }
 
+  /**
+   * Apply classification results to update world state.
+   * This is Phase 4 of the processing pipeline per design doc.
+   */
+  async applyClassificationResult(result: ClassificationResult): Promise<void> {
+    if (!this.currentStory) {
+      log('applyClassificationResult: No story loaded, skipping');
+      return;
+    }
+
+    log('applyClassificationResult called', {
+      characterUpdates: result.entryUpdates.characterUpdates.length,
+      locationUpdates: result.entryUpdates.locationUpdates.length,
+      itemUpdates: result.entryUpdates.itemUpdates.length,
+      newCharacters: result.entryUpdates.newCharacters.length,
+      newLocations: result.entryUpdates.newLocations.length,
+      newItems: result.entryUpdates.newItems.length,
+      newStoryBeats: result.entryUpdates.newStoryBeats.length,
+      scene: result.scene,
+    });
+
+    const storyId = this.currentStory.id;
+
+    // Apply character updates
+    for (const update of result.entryUpdates.characterUpdates) {
+      const existing = this.characters.find(c =>
+        c.name.toLowerCase() === update.name.toLowerCase()
+      );
+      if (existing) {
+        log('Updating character:', update.name, update.changes);
+        const changes: Partial<Character> = {};
+        if (update.changes.status) changes.status = update.changes.status;
+        if (update.changes.relationship) changes.relationship = update.changes.relationship;
+        if (update.changes.newTraits?.length) {
+          changes.traits = [...existing.traits, ...update.changes.newTraits];
+        }
+        await database.updateCharacter(existing.id, changes);
+        this.characters = this.characters.map(c =>
+          c.id === existing.id ? { ...c, ...changes } : c
+        );
+      }
+    }
+
+    // Apply location updates
+    for (const update of result.entryUpdates.locationUpdates) {
+      const existing = this.locations.find(l =>
+        l.name.toLowerCase() === update.name.toLowerCase()
+      );
+      if (existing) {
+        log('Updating location:', update.name, update.changes);
+        const changes: Partial<Location> = {};
+        if (update.changes.visited !== undefined) changes.visited = update.changes.visited;
+        if (update.changes.current !== undefined) changes.current = update.changes.current;
+        if (update.changes.descriptionAddition && existing.description) {
+          changes.description = existing.description + ' ' + update.changes.descriptionAddition;
+        }
+        await database.updateLocation(existing.id, changes);
+        this.locations = this.locations.map(l =>
+          l.id === existing.id ? { ...l, ...changes } : l
+        );
+      }
+    }
+
+    // Apply item updates
+    for (const update of result.entryUpdates.itemUpdates) {
+      const existing = this.items.find(i =>
+        i.name.toLowerCase() === update.name.toLowerCase()
+      );
+      if (existing) {
+        log('Updating item:', update.name, update.changes);
+        const changes: Partial<Item> = {};
+        if (update.changes.quantity !== undefined) changes.quantity = update.changes.quantity;
+        if (update.changes.equipped !== undefined) changes.equipped = update.changes.equipped;
+        if (update.changes.location) changes.location = update.changes.location;
+        await database.updateItem(existing.id, changes);
+        this.items = this.items.map(i =>
+          i.id === existing.id ? { ...i, ...changes } : i
+        );
+      }
+    }
+
+    // Add new characters (check for duplicates)
+    for (const newChar of result.entryUpdates.newCharacters) {
+      const exists = this.characters.some(c =>
+        c.name.toLowerCase() === newChar.name.toLowerCase()
+      );
+      if (!exists) {
+        log('Adding new character:', newChar.name);
+        const character: Character = {
+          id: crypto.randomUUID(),
+          storyId,
+          name: newChar.name,
+          description: newChar.description,
+          relationship: newChar.relationship,
+          traits: newChar.traits,
+          status: 'active',
+          metadata: { source: 'classifier' },
+        };
+        await database.addCharacter(character);
+        this.characters = [...this.characters, character];
+      }
+    }
+
+    // Add new locations (check for duplicates)
+    for (const newLoc of result.entryUpdates.newLocations) {
+      const exists = this.locations.some(l =>
+        l.name.toLowerCase() === newLoc.name.toLowerCase()
+      );
+      if (!exists) {
+        log('Adding new location:', newLoc.name);
+        // If this is the current location, unset others first
+        if (newLoc.current) {
+          this.locations = this.locations.map(l => ({ ...l, current: false }));
+          for (const l of this.locations) {
+            await database.updateLocation(l.id, { current: false });
+          }
+        }
+        const location: Location = {
+          id: crypto.randomUUID(),
+          storyId,
+          name: newLoc.name,
+          description: newLoc.description,
+          visited: newLoc.visited,
+          current: newLoc.current,
+          connections: [],
+          metadata: { source: 'classifier' },
+        };
+        await database.addLocation(location);
+        this.locations = [...this.locations, location];
+      }
+    }
+
+    // Handle scene.currentLocationName - update current location if specified
+    if (result.scene.currentLocationName) {
+      const locationName = result.scene.currentLocationName.toLowerCase();
+      const currentLoc = this.locations.find(l =>
+        l.name.toLowerCase() === locationName
+      );
+      if (currentLoc && !currentLoc.current) {
+        log('Setting current location from scene:', currentLoc.name);
+        await database.setCurrentLocation(storyId, currentLoc.id);
+        this.locations = this.locations.map(l => ({
+          ...l,
+          current: l.id === currentLoc.id,
+          visited: l.id === currentLoc.id ? true : l.visited,
+        }));
+      }
+    }
+
+    // Add new items (check for duplicates)
+    for (const newItem of result.entryUpdates.newItems) {
+      const exists = this.items.some(i =>
+        i.name.toLowerCase() === newItem.name.toLowerCase()
+      );
+      if (!exists) {
+        log('Adding new item:', newItem.name);
+        const item: Item = {
+          id: crypto.randomUUID(),
+          storyId,
+          name: newItem.name,
+          description: newItem.description,
+          quantity: newItem.quantity,
+          equipped: false,
+          location: newItem.location || 'inventory',
+          metadata: { source: 'classifier' },
+        };
+        await database.addItem(item);
+        this.items = [...this.items, item];
+      }
+    }
+
+    // Add new story beats (check for duplicates by title)
+    for (const newBeat of result.entryUpdates.newStoryBeats) {
+      const exists = this.storyBeats.some(b =>
+        b.title.toLowerCase() === newBeat.title.toLowerCase()
+      );
+      if (!exists) {
+        log('Adding new story beat:', newBeat.title);
+        const beat: StoryBeat = {
+          id: crypto.randomUUID(),
+          storyId,
+          title: newBeat.title,
+          description: newBeat.description,
+          type: newBeat.type,
+          status: newBeat.status,
+          triggeredAt: Date.now(),
+          metadata: { source: 'classifier' },
+        };
+        await database.addStoryBeat(beat);
+        this.storyBeats = [...this.storyBeats, beat];
+      }
+    }
+
+    log('applyClassificationResult complete', {
+      characters: this.characters.length,
+      locations: this.locations.length,
+      items: this.items.length,
+      storyBeats: this.storyBeats.length,
+    });
+
+    // Emit state updated event if there were any changes
+    const hasChanges =
+      result.entryUpdates.newCharacters.length > 0 ||
+      result.entryUpdates.newLocations.length > 0 ||
+      result.entryUpdates.newItems.length > 0 ||
+      result.entryUpdates.newStoryBeats.length > 0 ||
+      result.entryUpdates.characterUpdates.length > 0 ||
+      result.entryUpdates.locationUpdates.length > 0 ||
+      result.entryUpdates.itemUpdates.length > 0;
+
+    if (hasChanges) {
+      emitStateUpdated({
+        characters: result.entryUpdates.newCharacters.length + result.entryUpdates.characterUpdates.length,
+        locations: result.entryUpdates.newLocations.length + result.entryUpdates.locationUpdates.length,
+        items: result.entryUpdates.newItems.length + result.entryUpdates.itemUpdates.length,
+        storyBeats: result.entryUpdates.newStoryBeats.length,
+      });
+    }
+  }
+
   // Clear current story (when switching or closing)
   clearCurrentStory(): void {
     this.currentStory = null;
@@ -328,6 +628,107 @@ class StoryStore {
     this.locations = [];
     this.items = [];
     this.storyBeats = [];
+    this.chapters = [];
+    this.checkpoints = [];
+  }
+
+  // Update story mode
+  async setStoryMode(mode: StoryMode): Promise<void> {
+    if (!this.currentStory) throw new Error('No story loaded');
+
+    await database.updateStory(this.currentStory.id, { mode });
+    this.currentStory = { ...this.currentStory, mode };
+    log('Story mode updated:', mode);
+
+    // Emit event
+    emitModeChanged(mode);
+  }
+
+  // Update memory configuration
+  async setMemoryConfig(config: MemoryConfig): Promise<void> {
+    if (!this.currentStory) throw new Error('No story loaded');
+
+    await database.updateStory(this.currentStory.id, { memoryConfig: config });
+    this.currentStory = { ...this.currentStory, memoryConfig: config };
+    log('Memory config updated:', config);
+  }
+
+  // Add a chapter
+  async addChapter(chapter: Chapter): Promise<void> {
+    if (!this.currentStory) throw new Error('No story loaded');
+
+    await database.addChapter(chapter);
+    this.chapters = [...this.chapters, chapter];
+    log('Chapter added:', chapter.number, chapter.title);
+
+    // Emit event
+    emitChapterCreated(chapter.id, chapter.number, chapter.title);
+  }
+
+  // Create a checkpoint (snapshot of current state)
+  async createCheckpoint(name: string): Promise<Checkpoint> {
+    if (!this.currentStory) throw new Error('No story loaded');
+
+    const lastEntry = this.entries[this.entries.length - 1];
+    if (!lastEntry) throw new Error('No entries to checkpoint');
+
+    const checkpoint: Checkpoint = {
+      id: crypto.randomUUID(),
+      storyId: this.currentStory.id,
+      name,
+      lastEntryId: lastEntry.id,
+      lastEntryPreview: lastEntry.content.substring(0, 100),
+      entryCount: this.entries.length,
+      entriesSnapshot: [...this.entries],
+      charactersSnapshot: [...this.characters],
+      locationsSnapshot: [...this.locations],
+      itemsSnapshot: [...this.items],
+      storyBeatsSnapshot: [...this.storyBeats],
+      chaptersSnapshot: [...this.chapters],
+      createdAt: Date.now(),
+    };
+
+    await database.createCheckpoint(checkpoint);
+    this.checkpoints = [checkpoint, ...this.checkpoints];
+    log('Checkpoint created:', name);
+
+    // Emit event
+    eventBus.emit<CheckpointCreatedEvent>({ type: 'CheckpointCreated', checkpointId: checkpoint.id, name });
+
+    return checkpoint;
+  }
+
+  // Restore from a checkpoint
+  async restoreCheckpoint(checkpointId: string): Promise<void> {
+    if (!this.currentStory) throw new Error('No story loaded');
+
+    const checkpoint = this.checkpoints.find(cp => cp.id === checkpointId);
+    if (!checkpoint) throw new Error('Checkpoint not found');
+
+    log('Restoring checkpoint:', checkpoint.name);
+
+    // Restore to database
+    await database.restoreCheckpoint(checkpoint);
+
+    // Update local state
+    this.entries = [...checkpoint.entriesSnapshot];
+    this.characters = [...checkpoint.charactersSnapshot];
+    this.locations = [...checkpoint.locationsSnapshot];
+    this.items = [...checkpoint.itemsSnapshot];
+    this.storyBeats = [...checkpoint.storyBeatsSnapshot];
+    this.chapters = [...checkpoint.chaptersSnapshot];
+
+    log('Checkpoint restored');
+
+    // Emit event
+    eventBus.emit<CheckpointRestoredEvent>({ type: 'CheckpointRestored', checkpointId });
+  }
+
+  // Delete a checkpoint
+  async deleteCheckpoint(checkpointId: string): Promise<void> {
+    await database.deleteCheckpoint(checkpointId);
+    this.checkpoints = this.checkpoints.filter(cp => cp.id !== checkpointId);
+    log('Checkpoint deleted:', checkpointId);
   }
 
   // Delete a story

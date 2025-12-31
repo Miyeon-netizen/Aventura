@@ -1,0 +1,348 @@
+import type { OpenRouterProvider } from './openrouter';
+import type { Character, Location, Item, StoryBeat } from '$lib/types';
+
+const DEBUG = true;
+
+function log(...args: any[]) {
+  if (DEBUG) {
+    console.log('[Classifier]', ...args);
+  }
+}
+
+// Classification result types based on design document section 3.3.1
+export interface ClassificationResult {
+  // Entry updates
+  entryUpdates: {
+    // Updates to existing entries
+    characterUpdates: CharacterUpdate[];
+    locationUpdates: LocationUpdate[];
+    itemUpdates: ItemUpdate[];
+
+    // New entries discovered in the narrative
+    newCharacters: NewCharacter[];
+    newLocations: NewLocation[];
+    newItems: NewItem[];
+    newStoryBeats: NewStoryBeat[];
+  };
+
+  // Scene state
+  scene: {
+    currentLocationName: string | null;
+    presentCharacterNames: string[];
+    timeProgression: 'none' | 'minutes' | 'hours' | 'days';
+  };
+}
+
+export interface CharacterUpdate {
+  name: string;
+  changes: {
+    status?: 'active' | 'inactive' | 'deceased';
+    relationship?: string;
+    newTraits?: string[];
+  };
+}
+
+export interface LocationUpdate {
+  name: string;
+  changes: {
+    visited?: boolean;
+    current?: boolean;
+    descriptionAddition?: string;
+  };
+}
+
+export interface ItemUpdate {
+  name: string;
+  changes: {
+    quantity?: number;
+    equipped?: boolean;
+    location?: string; // 'inventory', 'dropped', 'given', etc.
+  };
+}
+
+export interface NewCharacter {
+  name: string;
+  description: string;
+  relationship: string | null;
+  traits: string[];
+}
+
+export interface NewLocation {
+  name: string;
+  description: string;
+  visited: boolean;
+  current: boolean;
+}
+
+export interface NewItem {
+  name: string;
+  description: string;
+  quantity: number;
+  location: string;
+}
+
+export interface NewStoryBeat {
+  title: string;
+  description: string;
+  type: 'milestone' | 'quest' | 'revelation' | 'event';
+  status: 'pending' | 'active' | 'completed';
+}
+
+// Context for classification
+export interface ClassificationContext {
+  narrativeResponse: string;
+  userAction: string;
+  existingCharacters: Character[];
+  existingLocations: Location[];
+  existingItems: Item[];
+  existingStoryBeats: StoryBeat[];
+  genre: string | null;
+}
+
+export class ClassifierService {
+  private provider: OpenRouterProvider;
+  private model: string;
+  private temperature: number;
+
+  constructor(provider: OpenRouterProvider, model?: string, temperature?: number) {
+    this.provider = provider;
+    // Use Grok 4.1 Fast for classification - fast and capable
+    this.model = model || 'x-ai/grok-4.1-fast';
+    this.temperature = temperature ?? 0.3;
+  }
+
+  async classify(context: ClassificationContext): Promise<ClassificationResult> {
+    log('classify called', {
+      model: this.model,
+      temperature: this.temperature,
+      reasoning: true,
+      responseLength: context.narrativeResponse.length,
+      existingCharacters: context.existingCharacters.length,
+      existingLocations: context.existingLocations.length,
+      existingItems: context.existingItems.length,
+    });
+
+    const prompt = this.buildClassificationPrompt(context);
+
+    try {
+      log('Sending classification request...');
+
+      const response = await this.provider.generateResponse({
+        model: this.model,
+        messages: [
+          { role: 'system', content: this.getSystemPrompt() },
+          { role: 'user', content: prompt }
+        ],
+        temperature: this.temperature,
+        maxTokens: 2000,
+        extraBody: {
+          reasoning: { enabled: true },
+        },
+      });
+
+      log('Classification response received', {
+        contentLength: response.content.length,
+        usage: response.usage
+      });
+
+      const result = this.parseClassificationResponse(response.content);
+      log('Classification parsed successfully', {
+        newCharacters: result.entryUpdates.newCharacters.length,
+        newLocations: result.entryUpdates.newLocations.length,
+        newItems: result.entryUpdates.newItems.length,
+        newStoryBeats: result.entryUpdates.newStoryBeats.length,
+        characterUpdates: result.entryUpdates.characterUpdates.length,
+        locationUpdates: result.entryUpdates.locationUpdates.length,
+        itemUpdates: result.entryUpdates.itemUpdates.length,
+        currentLocation: result.scene.currentLocationName,
+        presentCharacters: result.scene.presentCharacterNames,
+      });
+
+      return result;
+    } catch (error) {
+      log('Classification failed', error);
+      // Return empty result on failure - don't break the main flow
+      return this.getEmptyResult();
+    }
+  }
+
+  private getSystemPrompt(): string {
+    return `You analyze interactive fiction responses and extract structured world state changes.
+
+## Your Role
+Extract ONLY significant, named entities that matter to the ongoing story. Be precise and conservative.
+
+## What to Extract
+
+### Characters - ONLY extract if:
+- They have a proper name (not "the merchant" or "a guard")
+- They have meaningful interaction with the protagonist
+- They are likely to appear again or are plot-relevant
+- Example: "Elena, the blacksmith's daughter who gives you a quest" = YES
+- Example: "the innkeeper who served your drink" = NO
+
+### Locations - ONLY extract if:
+- The protagonist physically travels there or it's their current location
+- It has a specific name (not "a dark alley" or "the forest")
+- Example: "You enter the Thornwood Tavern" = YES
+- Example: "You see mountains in the distance" = NO
+
+### Items - ONLY extract if:
+- The protagonist explicitly acquires, picks up, or is given the item
+- The item has narrative significance (quest item, weapon, key, etc.)
+- Example: "She hands you an ancient amulet" = YES
+- Example: "There's a bottle on the shelf" = NO
+
+### Story Beats - ONLY extract if:
+- A quest or task is explicitly given or accepted
+- A major revelation or plot twist occurs
+- A significant milestone is reached
+- Example: "She asks you to find her missing brother" = YES (quest)
+- Example: "You learn the king was murdered by his own son" = YES (revelation)
+- Example: "You enjoy a nice meal" = NO
+
+## Critical Rules
+1. When in doubt, DO NOT extract - false positives pollute the world state
+2. Only extract what ACTUALLY HAPPENED, not what might happen
+3. Use the exact names from the text, don't invent or embellish
+4. Respond with valid JSON only - no markdown, no explanation`;
+  }
+
+  private buildClassificationPrompt(context: ClassificationContext): string {
+    const existingCharacterNames = context.existingCharacters.map(c => c.name);
+    const existingLocationNames = context.existingLocations.map(l => l.name);
+    const existingItemNames = context.existingItems.map(i => i.name);
+
+    return `Analyze this narrative passage and extract world state changes.
+
+## Context
+${context.genre ? `Genre: ${context.genre}` : ''}
+Already tracking: ${existingCharacterNames.length} characters, ${existingLocationNames.length} locations, ${existingItemNames.length} items
+
+## The Player's Action
+"${context.userAction}"
+
+## The Narrative Response
+"""
+${context.narrativeResponse}
+"""
+
+## Already Known Entities (check before adding duplicates)
+Characters: ${existingCharacterNames.length > 0 ? existingCharacterNames.join(', ') : '(none)'}
+Locations: ${existingLocationNames.length > 0 ? existingLocationNames.join(', ') : '(none)'}
+Items: ${existingItemNames.length > 0 ? existingItemNames.join(', ') : '(none)'}
+
+## Your Task
+1. Check if any EXISTING entities need updates (status change, new info learned, etc.)
+2. Identify any NEW significant entities introduced (apply the extraction rules strictly)
+3. Determine the current scene state
+
+## Response Format (JSON only)
+{
+  "entryUpdates": {
+    "characterUpdates": [],
+    "locationUpdates": [],
+    "itemUpdates": [],
+    "newCharacters": [],
+    "newLocations": [],
+    "newItems": [],
+    "newStoryBeats": []
+  },
+  "scene": {
+    "currentLocationName": null,
+    "presentCharacterNames": [],
+    "timeProgression": "none"
+  }
+}
+
+### Field Specifications
+
+characterUpdates: [{"name": "ExistingName", "changes": {"status": "active|inactive|deceased", "relationship": "new relationship", "newTraits": ["trait"]}}]
+
+locationUpdates: [{"name": "ExistingName", "changes": {"visited": true, "current": true, "descriptionAddition": "new detail learned"}}]
+
+itemUpdates: [{"name": "ExistingName", "changes": {"quantity": 1, "equipped": true, "location": "inventory|dropped|given"}}]
+
+newCharacters: [{"name": "ProperName", "description": "one sentence", "relationship": "friend|enemy|ally|neutral|unknown", "traits": ["trait1"]}]
+
+newLocations: [{"name": "ProperName", "description": "one sentence", "visited": true, "current": false}]
+
+newItems: [{"name": "ItemName", "description": "one sentence", "quantity": 1, "location": "inventory"}]
+
+newStoryBeats: [{"title": "Short Title", "description": "what happened or was learned", "type": "quest|revelation|milestone|event", "status": "pending|active|completed"}]
+
+scene.currentLocationName: The name of where the protagonist IS (not where they're going), or null if unchanged
+scene.presentCharacterNames: Names of characters physically present in the scene
+scene.timeProgression: How much time passed - "none", "minutes", "hours", or "days"
+
+Return valid JSON only. Empty arrays are fine - don't invent entities that aren't clearly in the text.`;
+  }
+
+  private parseClassificationResponse(content: string): ClassificationResult {
+    // Try to extract JSON from the response
+    let jsonStr = content.trim();
+
+    // Handle markdown code blocks
+    if (jsonStr.startsWith('```json')) {
+      jsonStr = jsonStr.slice(7);
+    } else if (jsonStr.startsWith('```')) {
+      jsonStr = jsonStr.slice(3);
+    }
+    if (jsonStr.endsWith('```')) {
+      jsonStr = jsonStr.slice(0, -3);
+    }
+    jsonStr = jsonStr.trim();
+
+    try {
+      const parsed = JSON.parse(jsonStr);
+
+      // Validate and normalize the structure
+      return {
+        entryUpdates: {
+          characterUpdates: Array.isArray(parsed.entryUpdates?.characterUpdates)
+            ? parsed.entryUpdates.characterUpdates : [],
+          locationUpdates: Array.isArray(parsed.entryUpdates?.locationUpdates)
+            ? parsed.entryUpdates.locationUpdates : [],
+          itemUpdates: Array.isArray(parsed.entryUpdates?.itemUpdates)
+            ? parsed.entryUpdates.itemUpdates : [],
+          newCharacters: Array.isArray(parsed.entryUpdates?.newCharacters)
+            ? parsed.entryUpdates.newCharacters : [],
+          newLocations: Array.isArray(parsed.entryUpdates?.newLocations)
+            ? parsed.entryUpdates.newLocations : [],
+          newItems: Array.isArray(parsed.entryUpdates?.newItems)
+            ? parsed.entryUpdates.newItems : [],
+          newStoryBeats: Array.isArray(parsed.entryUpdates?.newStoryBeats)
+            ? parsed.entryUpdates.newStoryBeats : [],
+        },
+        scene: {
+          currentLocationName: parsed.scene?.currentLocationName ?? null,
+          presentCharacterNames: Array.isArray(parsed.scene?.presentCharacterNames)
+            ? parsed.scene.presentCharacterNames : [],
+          timeProgression: parsed.scene?.timeProgression ?? 'none',
+        },
+      };
+    } catch (e) {
+      log('Failed to parse classification JSON', e, 'Content:', jsonStr.substring(0, 200));
+      return this.getEmptyResult();
+    }
+  }
+
+  private getEmptyResult(): ClassificationResult {
+    return {
+      entryUpdates: {
+        characterUpdates: [],
+        locationUpdates: [],
+        itemUpdates: [],
+        newCharacters: [],
+        newLocations: [],
+        newItems: [],
+        newStoryBeats: [],
+      },
+      scene: {
+        currentLocationName: null,
+        presentCharacterNames: [],
+        timeProgression: 'none',
+      },
+    };
+  }
+}

@@ -20,13 +20,13 @@
 
   // Fallback models if API fetch fails
   const fallbackModels: ModelInfo[] = [
+    { id: 'x-ai/grok-4.1-fast', name: 'Grok 4.1 Fast', contextLength: 131072 },
+    { id: 'x-ai/grok-4.1', name: 'Grok 4.1', contextLength: 131072 },
     { id: 'anthropic/claude-sonnet-4', name: 'Claude Sonnet 4', contextLength: 200000 },
     { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet', contextLength: 200000 },
     { id: 'openai/gpt-4o', name: 'GPT-4o', contextLength: 128000 },
-    { id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo', contextLength: 128000 },
     { id: 'google/gemini-pro-1.5', name: 'Gemini Pro 1.5', contextLength: 1000000 },
     { id: 'meta-llama/llama-3.1-405b-instruct', name: 'Llama 3.1 405B', contextLength: 131072 },
-    { id: 'mistralai/mistral-large', name: 'Mistral Large', contextLength: 128000 },
   ];
 
   // Filtered and sorted models
@@ -44,11 +44,12 @@
 
     // Sort: prioritize popular providers, then alphabetically
     const providerPriority: Record<string, number> = {
-      'anthropic': 1,
-      'openai': 2,
-      'google': 3,
-      'meta-llama': 4,
-      'mistralai': 5,
+      'x-ai': 1,
+      'anthropic': 2,
+      'openai': 3,
+      'google': 4,
+      'meta-llama': 5,
+      'mistralai': 6,
     };
 
     return result.sort((a, b) => {
@@ -68,19 +69,29 @@
 
   // Fetch models on mount (public endpoint, no API key needed)
   onMount(() => {
+    console.log('[SettingsModal] onMount - starting model fetch');
     fetchModels();
   });
 
   async function fetchModels() {
-    if (isLoadingModels) return;
+    console.log('[SettingsModal] fetchModels called', { isLoadingModels });
+
+    if (isLoadingModels) {
+      console.log('[SettingsModal] Already loading, skipping');
+      return;
+    }
 
     isLoadingModels = true;
     modelError = null;
 
     try {
+      console.log('[SettingsModal] Creating OpenRouterProvider...');
       // Models endpoint is public, doesn't need API key
       const provider = new OpenRouterProvider('');
+
+      console.log('[SettingsModal] Calling listModels...');
       const fetchedModels = await provider.listModels();
+      console.log('[SettingsModal] Received models:', fetchedModels.length);
 
       // Filter to only include text/chat models (exclude image, embedding, etc.)
       models = fetchedModels.filter(m => {
@@ -92,13 +103,14 @@
         return true;
       });
 
-      console.log(`Loaded ${models.length} models from OpenRouter`);
+      console.log(`[SettingsModal] Filtered to ${models.length} text/chat models`);
     } catch (error) {
-      console.error('Failed to fetch models:', error);
-      modelError = 'Failed to load models. Using defaults.';
+      console.error('[SettingsModal] Failed to fetch models:', error);
+      modelError = error instanceof Error ? error.message : 'Failed to load models. Using defaults.';
       models = [];
     } finally {
       isLoadingModels = false;
+      console.log('[SettingsModal] fetchModels complete', { modelCount: models.length, error: modelError });
     }
   }
 

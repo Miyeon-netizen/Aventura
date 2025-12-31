@@ -195,7 +195,9 @@ class ExportService {
         description: data.story.description,
         genre: data.story.genre,
         templateId: data.story.templateId,
+        mode: data.story.mode || 'adventure',
         settings: data.story.settings,
+        memoryConfig: data.story.memoryConfig || null,
       };
 
       await database.createStory(importedStory);

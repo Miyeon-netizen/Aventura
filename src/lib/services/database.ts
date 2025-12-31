@@ -1,5 +1,5 @@
 import Database from '@tauri-apps/plugin-sql';
-import type { Story, StoryEntry, Character, Location, Item, StoryBeat, Template } from '$lib/types';
+import type { Story, StoryEntry, Character, Location, Item, StoryBeat, Template, Chapter, Checkpoint, MemoryConfig } from '$lib/types';
 
 class DatabaseService {
   private db: Database | null = null;
@@ -56,17 +56,19 @@ class DatabaseService {
     const db = await this.getDb();
     const now = Date.now();
     await db.execute(
-      `INSERT INTO stories (id, title, description, genre, template_id, created_at, updated_at, settings)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO stories (id, title, description, genre, template_id, mode, created_at, updated_at, settings, memory_config)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         story.id,
         story.title,
         story.description,
         story.genre,
         story.templateId,
+        story.mode || 'adventure',
         now,
         now,
         story.settings ? JSON.stringify(story.settings) : null,
+        story.memoryConfig ? JSON.stringify(story.memoryConfig) : null,
       ]
     );
     return { ...story, createdAt: now, updatedAt: now };
@@ -90,9 +92,17 @@ class DatabaseService {
       setClauses.push('genre = ?');
       values.push(updates.genre);
     }
+    if (updates.mode !== undefined) {
+      setClauses.push('mode = ?');
+      values.push(updates.mode);
+    }
     if (updates.settings !== undefined) {
       setClauses.push('settings = ?');
       values.push(JSON.stringify(updates.settings));
+    }
+    if (updates.memoryConfig !== undefined) {
+      setClauses.push('memory_config = ?');
+      values.push(updates.memoryConfig ? JSON.stringify(updates.memoryConfig) : null);
     }
 
     values.push(id);
@@ -256,6 +266,23 @@ class DatabaseService {
     await db.execute('UPDATE locations SET current = 1, visited = 1 WHERE id = ?', [locationId]);
   }
 
+  async updateLocation(id: string, updates: Partial<Location>): Promise<void> {
+    const db = await this.getDb();
+    const setClauses: string[] = [];
+    const values: any[] = [];
+
+    if (updates.name !== undefined) { setClauses.push('name = ?'); values.push(updates.name); }
+    if (updates.description !== undefined) { setClauses.push('description = ?'); values.push(updates.description); }
+    if (updates.visited !== undefined) { setClauses.push('visited = ?'); values.push(updates.visited ? 1 : 0); }
+    if (updates.current !== undefined) { setClauses.push('current = ?'); values.push(updates.current ? 1 : 0); }
+    if (updates.connections !== undefined) { setClauses.push('connections = ?'); values.push(JSON.stringify(updates.connections)); }
+    if (updates.metadata !== undefined) { setClauses.push('metadata = ?'); values.push(JSON.stringify(updates.metadata)); }
+
+    if (setClauses.length === 0) return;
+    values.push(id);
+    await db.execute(`UPDATE locations SET ${setClauses.join(', ')} WHERE id = ?`, values);
+  }
+
   // Item operations
   async getItems(storyId: string): Promise<Item[]> {
     const db = await this.getDb();
@@ -282,6 +309,40 @@ class DatabaseService {
         item.metadata ? JSON.stringify(item.metadata) : null,
       ]
     );
+  }
+
+  async updateItem(id: string, updates: Partial<Item>): Promise<void> {
+    const db = await this.getDb();
+    const setClauses: string[] = [];
+    const values: any[] = [];
+
+    if (updates.name !== undefined) { setClauses.push('name = ?'); values.push(updates.name); }
+    if (updates.description !== undefined) { setClauses.push('description = ?'); values.push(updates.description); }
+    if (updates.quantity !== undefined) { setClauses.push('quantity = ?'); values.push(updates.quantity); }
+    if (updates.equipped !== undefined) { setClauses.push('equipped = ?'); values.push(updates.equipped ? 1 : 0); }
+    if (updates.location !== undefined) { setClauses.push('location = ?'); values.push(updates.location); }
+    if (updates.metadata !== undefined) { setClauses.push('metadata = ?'); values.push(JSON.stringify(updates.metadata)); }
+
+    if (setClauses.length === 0) return;
+    values.push(id);
+    await db.execute(`UPDATE items SET ${setClauses.join(', ')} WHERE id = ?`, values);
+  }
+
+  async updateStoryBeat(id: string, updates: Partial<StoryBeat>): Promise<void> {
+    const db = await this.getDb();
+    const setClauses: string[] = [];
+    const values: any[] = [];
+
+    if (updates.title !== undefined) { setClauses.push('title = ?'); values.push(updates.title); }
+    if (updates.description !== undefined) { setClauses.push('description = ?'); values.push(updates.description); }
+    if (updates.type !== undefined) { setClauses.push('type = ?'); values.push(updates.type); }
+    if (updates.status !== undefined) { setClauses.push('status = ?'); values.push(updates.status); }
+    if (updates.triggeredAt !== undefined) { setClauses.push('triggered_at = ?'); values.push(updates.triggeredAt); }
+    if (updates.metadata !== undefined) { setClauses.push('metadata = ?'); values.push(JSON.stringify(updates.metadata)); }
+
+    if (setClauses.length === 0) return;
+    values.push(id);
+    await db.execute(`UPDATE story_beats SET ${setClauses.join(', ')} WHERE id = ?`, values);
   }
 
   // Story beats operations
@@ -337,6 +398,179 @@ class DatabaseService {
     );
   }
 
+  // Chapter operations
+  async getChapters(storyId: string): Promise<Chapter[]> {
+    const db = await this.getDb();
+    const results = await db.select<any[]>(
+      'SELECT * FROM chapters WHERE story_id = ? ORDER BY number ASC',
+      [storyId]
+    );
+    return results.map(this.mapChapter);
+  }
+
+  async getChapter(id: string): Promise<Chapter | null> {
+    const db = await this.getDb();
+    const results = await db.select<any[]>(
+      'SELECT * FROM chapters WHERE id = ?',
+      [id]
+    );
+    return results.length > 0 ? this.mapChapter(results[0]) : null;
+  }
+
+  async getNextChapterNumber(storyId: string): Promise<number> {
+    const db = await this.getDb();
+    const result = await db.select<{ maxNum: number | null }[]>(
+      'SELECT MAX(number) as maxNum FROM chapters WHERE story_id = ?',
+      [storyId]
+    );
+    return (result[0]?.maxNum ?? 0) + 1;
+  }
+
+  async addChapter(chapter: Chapter): Promise<void> {
+    const db = await this.getDb();
+    await db.execute(
+      `INSERT INTO chapters (
+        id, story_id, number, title, start_entry_id, end_entry_id, entry_count,
+        summary, keywords, characters, locations, plot_threads, emotional_tone,
+        arc_id, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        chapter.id,
+        chapter.storyId,
+        chapter.number,
+        chapter.title,
+        chapter.startEntryId,
+        chapter.endEntryId,
+        chapter.entryCount,
+        chapter.summary,
+        JSON.stringify(chapter.keywords),
+        JSON.stringify(chapter.characters),
+        JSON.stringify(chapter.locations),
+        JSON.stringify(chapter.plotThreads),
+        chapter.emotionalTone,
+        chapter.arcId,
+        chapter.createdAt,
+      ]
+    );
+  }
+
+  async updateChapter(id: string, updates: Partial<Chapter>): Promise<void> {
+    const db = await this.getDb();
+    const setClauses: string[] = [];
+    const values: any[] = [];
+
+    if (updates.title !== undefined) { setClauses.push('title = ?'); values.push(updates.title); }
+    if (updates.summary !== undefined) { setClauses.push('summary = ?'); values.push(updates.summary); }
+    if (updates.keywords !== undefined) { setClauses.push('keywords = ?'); values.push(JSON.stringify(updates.keywords)); }
+    if (updates.characters !== undefined) { setClauses.push('characters = ?'); values.push(JSON.stringify(updates.characters)); }
+    if (updates.locations !== undefined) { setClauses.push('locations = ?'); values.push(JSON.stringify(updates.locations)); }
+    if (updates.plotThreads !== undefined) { setClauses.push('plot_threads = ?'); values.push(JSON.stringify(updates.plotThreads)); }
+    if (updates.emotionalTone !== undefined) { setClauses.push('emotional_tone = ?'); values.push(updates.emotionalTone); }
+    if (updates.arcId !== undefined) { setClauses.push('arc_id = ?'); values.push(updates.arcId); }
+
+    if (setClauses.length === 0) return;
+    values.push(id);
+    await db.execute(`UPDATE chapters SET ${setClauses.join(', ')} WHERE id = ?`, values);
+  }
+
+  async deleteChapter(id: string): Promise<void> {
+    const db = await this.getDb();
+    await db.execute('DELETE FROM chapters WHERE id = ?', [id]);
+  }
+
+  // Checkpoint operations
+  async getCheckpoints(storyId: string): Promise<Checkpoint[]> {
+    const db = await this.getDb();
+    const results = await db.select<any[]>(
+      'SELECT * FROM checkpoints WHERE story_id = ? ORDER BY created_at DESC',
+      [storyId]
+    );
+    return results.map(this.mapCheckpoint);
+  }
+
+  async getCheckpoint(id: string): Promise<Checkpoint | null> {
+    const db = await this.getDb();
+    const results = await db.select<any[]>(
+      'SELECT * FROM checkpoints WHERE id = ?',
+      [id]
+    );
+    return results.length > 0 ? this.mapCheckpoint(results[0]) : null;
+  }
+
+  async createCheckpoint(checkpoint: Checkpoint): Promise<void> {
+    const db = await this.getDb();
+    await db.execute(
+      `INSERT INTO checkpoints (
+        id, story_id, name, last_entry_id, last_entry_preview, entry_count,
+        entries_snapshot, characters_snapshot, locations_snapshot,
+        items_snapshot, story_beats_snapshot, chapters_snapshot, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        checkpoint.id,
+        checkpoint.storyId,
+        checkpoint.name,
+        checkpoint.lastEntryId,
+        checkpoint.lastEntryPreview,
+        checkpoint.entryCount,
+        JSON.stringify(checkpoint.entriesSnapshot),
+        JSON.stringify(checkpoint.charactersSnapshot),
+        JSON.stringify(checkpoint.locationsSnapshot),
+        JSON.stringify(checkpoint.itemsSnapshot),
+        JSON.stringify(checkpoint.storyBeatsSnapshot),
+        JSON.stringify(checkpoint.chaptersSnapshot),
+        checkpoint.createdAt,
+      ]
+    );
+  }
+
+  async deleteCheckpoint(id: string): Promise<void> {
+    const db = await this.getDb();
+    await db.execute('DELETE FROM checkpoints WHERE id = ?', [id]);
+  }
+
+  async restoreCheckpoint(checkpoint: Checkpoint): Promise<void> {
+    const db = await this.getDb();
+    const storyId = checkpoint.storyId;
+
+    // Delete current state
+    await db.execute('DELETE FROM story_entries WHERE story_id = ?', [storyId]);
+    await db.execute('DELETE FROM characters WHERE story_id = ?', [storyId]);
+    await db.execute('DELETE FROM locations WHERE story_id = ?', [storyId]);
+    await db.execute('DELETE FROM items WHERE story_id = ?', [storyId]);
+    await db.execute('DELETE FROM story_beats WHERE story_id = ?', [storyId]);
+    await db.execute('DELETE FROM chapters WHERE story_id = ?', [storyId]);
+
+    // Restore entries
+    for (const entry of checkpoint.entriesSnapshot) {
+      await this.addStoryEntry(entry);
+    }
+
+    // Restore characters
+    for (const character of checkpoint.charactersSnapshot) {
+      await this.addCharacter(character);
+    }
+
+    // Restore locations
+    for (const location of checkpoint.locationsSnapshot) {
+      await this.addLocation(location);
+    }
+
+    // Restore items
+    for (const item of checkpoint.itemsSnapshot) {
+      await this.addItem(item);
+    }
+
+    // Restore story beats
+    for (const beat of checkpoint.storyBeatsSnapshot) {
+      await this.addStoryBeat(beat);
+    }
+
+    // Restore chapters
+    for (const chapter of checkpoint.chaptersSnapshot) {
+      await this.addChapter(chapter);
+    }
+  }
+
   // Mapping functions
   private mapStory(row: any): Story {
     return {
@@ -345,9 +579,11 @@ class DatabaseService {
       description: row.description,
       genre: row.genre,
       templateId: row.template_id,
+      mode: row.mode || 'adventure',
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       settings: row.settings ? JSON.parse(row.settings) : null,
+      memoryConfig: row.memory_config ? JSON.parse(row.memory_config) : null,
     };
   }
 
@@ -425,6 +661,44 @@ class DatabaseService {
       systemPrompt: row.system_prompt,
       initialState: row.initial_state ? JSON.parse(row.initial_state) : null,
       isBuiltin: row.is_builtin === 1,
+      createdAt: row.created_at,
+    };
+  }
+
+  private mapChapter(row: any): Chapter {
+    return {
+      id: row.id,
+      storyId: row.story_id,
+      number: row.number,
+      title: row.title,
+      startEntryId: row.start_entry_id,
+      endEntryId: row.end_entry_id,
+      entryCount: row.entry_count,
+      summary: row.summary,
+      keywords: row.keywords ? JSON.parse(row.keywords) : [],
+      characters: row.characters ? JSON.parse(row.characters) : [],
+      locations: row.locations ? JSON.parse(row.locations) : [],
+      plotThreads: row.plot_threads ? JSON.parse(row.plot_threads) : [],
+      emotionalTone: row.emotional_tone,
+      arcId: row.arc_id,
+      createdAt: row.created_at,
+    };
+  }
+
+  private mapCheckpoint(row: any): Checkpoint {
+    return {
+      id: row.id,
+      storyId: row.story_id,
+      name: row.name,
+      lastEntryId: row.last_entry_id,
+      lastEntryPreview: row.last_entry_preview,
+      entryCount: row.entry_count,
+      entriesSnapshot: row.entries_snapshot ? JSON.parse(row.entries_snapshot) : [],
+      charactersSnapshot: row.characters_snapshot ? JSON.parse(row.characters_snapshot) : [],
+      locationsSnapshot: row.locations_snapshot ? JSON.parse(row.locations_snapshot) : [],
+      itemsSnapshot: row.items_snapshot ? JSON.parse(row.items_snapshot) : [],
+      storyBeatsSnapshot: row.story_beats_snapshot ? JSON.parse(row.story_beats_snapshot) : [],
+      chaptersSnapshot: row.chapters_snapshot ? JSON.parse(row.chapters_snapshot) : [],
       createdAt: row.created_at,
     };
   }

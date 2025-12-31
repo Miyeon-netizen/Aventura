@@ -9,6 +9,12 @@ pub fn run() {
             sql: include_str!("../migrations/001_initial.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 2,
+            description: "add_chapters_checkpoints_mode",
+            sql: include_str!("../migrations/002_chapters_checkpoints.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()
