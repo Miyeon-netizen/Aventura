@@ -38,7 +38,7 @@ export type EventType =
 export interface UserInputEvent {
   type: 'UserInput';
   text: string;
-  actionType?: 'do' | 'say' | 'think' | 'story' | 'direction';
+  actionType?: 'do' | 'say' | 'think' | 'story' | 'direction' | 'free';
 }
 
 export interface ContextReadyEvent {

@@ -5,7 +5,7 @@
   import { settings } from '$lib/stores/settings.svelte';
   import { aiService } from '$lib/services/ai';
   import { SimpleActivationTracker } from '$lib/services/ai/entryRetrieval';
-  import { Send, Wand2, MessageSquare, Brain, Sparkles, Feather, RefreshCw, X } from 'lucide-svelte';
+  import { Send, Wand2, MessageSquare, Brain, Sparkles, Feather, RefreshCw, X, PenLine } from 'lucide-svelte';
   import type { Chapter } from '$lib/types';
   import type { StorySuggestion } from '$lib/services/ai/suggestions';
   import Suggestions from './Suggestions.svelte';
@@ -23,7 +23,7 @@
   }
 
   let inputValue = $state('');
-  let actionType = $state<'do' | 'say' | 'think' | 'story'>('do');
+  let actionType = $state<'do' | 'say' | 'think' | 'story' | 'free'>('do');
   let suggestions = $state<StorySuggestion[]>([]);
   let suggestionsLoading = $state(false);
   let isRawActionChoice = $state(false); // True when submitting an AI-generated choice (no prefix/suffix)
@@ -232,6 +232,7 @@
           say: 'I say, "',
           think: 'I think to myself, "',
           story: '',
+          free: '',
         };
       case 'third':
         return {
@@ -239,6 +240,7 @@
           say: `${protagonistName} says, "`,
           think: `${protagonistName} thinks, "`,
           story: '',
+          free: '',
         };
       case 'second':
       default:
@@ -247,6 +249,7 @@
           say: 'You say, "',
           think: 'You think to yourself, "',
           story: '',
+          free: '',
         };
     }
   });
@@ -256,6 +259,7 @@
     say: '"',
     think: '"',
     story: '',
+    free: '',
   };
 
   /**
@@ -800,6 +804,15 @@
         <Sparkles class="h-4 w-4" />
         Story
       </button>
+      <button
+        class="btn flex items-center gap-1.5 text-sm"
+        class:btn-primary={actionType === 'free'}
+        class:btn-secondary={actionType !== 'free'}
+        onclick={() => actionType = 'free'}
+      >
+        <PenLine class="h-4 w-4" />
+        Free
+      </button>
     </div>
 
     <!-- Adventure Mode: Input area -->
@@ -808,7 +821,7 @@
         <textarea
           bind:value={inputValue}
           onkeydown={handleKeydown}
-          placeholder={actionType === 'story' ? 'Describe what happens...' : 'What do you do?'}
+          placeholder={actionType === 'story' ? 'Describe what happens...' : actionType === 'free' ? 'Write anything...' : 'What do you do?'}
           class="input min-h-[60px] resize-none pr-12"
           rows="2"
           disabled={ui.isGenerating}
