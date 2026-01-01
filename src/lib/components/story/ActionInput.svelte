@@ -372,14 +372,25 @@
       }
 
       // Task 2: Lorebook entry retrieval (Tier 3 LLM selection runs here)
-      if (story.lorebookEntries.length > 0) {
+      // Pass live-tracked entities for Tier 1 injection
+      if (story.lorebookEntries.length > 0 || story.characters.length > 0 || story.locations.length > 0 || story.items.length > 0) {
         retrievalTasks.push((async () => {
           try {
-            log('Starting lorebook retrieval...', { entriesCount: story.lorebookEntries.length });
+            log('Starting lorebook retrieval...', {
+              lorebookEntries: story.lorebookEntries.length,
+              liveCharacters: story.characters.length,
+              liveLocations: story.locations.length,
+              liveItems: story.items.length,
+            });
             const entryResult = await aiService.getRelevantLorebookEntries(
               story.lorebookEntries,
               userActionContent,
-              story.visibleEntries.slice(-10)
+              story.visibleEntries.slice(-10),
+              {
+                characters: story.characters,
+                locations: story.locations,
+                items: story.items,
+              }
             );
             lorebookContext = entryResult.contextBlock;
             // Store retrieval result for debug panel

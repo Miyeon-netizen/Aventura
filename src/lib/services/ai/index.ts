@@ -469,15 +469,24 @@ class AIService {
   /**
    * Get relevant lorebook entries using tiered injection.
    * Per design doc section 3.2.3: Tiered Injection for Entries
+   *
+   * @param entries - Lorebook entries to consider
+   * @param userInput - The user's action/input
+   * @param recentStoryEntries - Recent story entries for context
+   * @param liveState - Live-tracked characters, locations, items (become Tier 1)
    */
   async getRelevantLorebookEntries(
     entries: Entry[],
     userInput: string,
-    recentStoryEntries: StoryEntry[]
+    recentStoryEntries: StoryEntry[],
+    liveState?: { characters: Character[]; locations: Location[]; items: Item[] }
   ): Promise<EntryRetrievalResult> {
     log('getRelevantLorebookEntries called', {
       totalEntries: entries.length,
       userInputLength: userInput.length,
+      liveCharacters: liveState?.characters.length ?? 0,
+      liveLocations: liveState?.locations.length ?? 0,
+      liveItems: liveState?.items.length ?? 0,
     });
 
     let provider: OpenRouterProvider | null = null;
@@ -491,7 +500,8 @@ class AIService {
     const result = await entryService.getRelevantEntries(
       entries,
       userInput,
-      recentStoryEntries
+      recentStoryEntries,
+      liveState
     );
 
     log('getRelevantLorebookEntries complete', {

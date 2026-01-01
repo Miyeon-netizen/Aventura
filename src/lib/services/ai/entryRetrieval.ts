@@ -8,9 +8,18 @@
  * - Tier 3: LLM selection (remaining entries sent to LLM to decide relevance)
  */
 
-import type { Entry, EntryType, StoryEntry } from '$lib/types';
+import type { Entry, EntryType, StoryEntry, Character, Location, Item } from '$lib/types';
 import type { OpenRouterProvider } from './openrouter';
 import { settings } from '$lib/stores/settings.svelte';
+
+/**
+ * Live world state - the actively tracked entities that should always be Tier 1
+ */
+export interface LiveWorldState {
+  characters: Character[];
+  locations: Location[];
+  items: Item[];
+}
 
 const DEBUG = true;
 
@@ -65,29 +74,27 @@ export class EntryRetrievalService {
   /**
    * Retrieve relevant entries using tiered injection.
    *
-   * Tier 1: Always injected (injection.mode === 'always' or state-based conditions)
+   * Tier 1: Always injected - includes:
+   *   - Live-tracked characters (active status)
+   *   - Live-tracked locations (current location)
+   *   - Live-tracked items (in inventory)
+   *   - Lorebook entries with injection.mode === 'always'
    * Tier 2: Keyword matched (name/aliases/keywords match user input or recent story)
    * Tier 3: LLM selection (remaining entries evaluated by LLM for relevance)
    */
   async getRelevantEntries(
     entries: Entry[],
     userInput: string,
-    recentStoryEntries: StoryEntry[]
+    recentStoryEntries: StoryEntry[],
+    liveState?: LiveWorldState
   ): Promise<EntryRetrievalResult> {
-    if (entries.length === 0) {
-      return {
-        tier1: [],
-        tier2: [],
-        tier3: [],
-        all: [],
-        contextBlock: '',
-      };
-    }
-
     log('getRelevantEntries called', {
       totalEntries: entries.length,
       userInputLength: userInput.length,
       recentCount: recentStoryEntries.length,
+      liveCharacters: liveState?.characters.length ?? 0,
+      liveLocations: liveState?.locations.length ?? 0,
+      liveItems: liveState?.items.length ?? 0,
     });
 
     // Build search content from user input and recent story
@@ -97,8 +104,8 @@ export class EntryRetrievalService {
       .join(' ');
     const searchContent = `${userInput} ${recentContent}`.toLowerCase();
 
-    // Tier 1: Always inject - entries with injection.mode === 'always' or state-based
-    const tier1 = this.getTier1Entries(entries);
+    // Tier 1: Live-tracked entities + lorebook entries with always/state-based injection
+    const tier1 = this.getTier1Entries(entries, liveState);
     log('Tier 1 entries (always active):', tier1.length, tier1.map(e => e.entry.name));
 
     // Get IDs already in tier 1
@@ -184,14 +191,59 @@ export class EntryRetrievalService {
 
   /**
    * Tier 1: Always inject entries.
+   *
+   * Live-tracked entities (highest priority):
+   * - Active characters from the tracker
+   * - Current location from the tracker
+   * - Items in inventory from the tracker
+   *
+   * Lorebook entries:
    * - Entries with injection.mode === 'always'
-   * - Characters that are present (state.isPresent === true)
-   * - Current location (state.isCurrentLocation === true)
-   * - Items in inventory (state.inInventory === true)
+   * - Entries with state-based conditions (legacy, for imported lorebooks with state)
    */
-  private getTier1Entries(entries: Entry[]): RetrievedEntry[] {
+  private getTier1Entries(entries: Entry[], liveState?: LiveWorldState): RetrievedEntry[] {
     const result: RetrievedEntry[] = [];
 
+    // First, add live-tracked entities (these are the primary Tier 1 sources)
+    if (liveState) {
+      // Active characters
+      for (const char of liveState.characters) {
+        if (char.status === 'active') {
+          result.push({
+            entry: this.characterToEntry(char),
+            tier: 1,
+            priority: 95,
+            matchReason: 'active character',
+          });
+        }
+      }
+
+      // Current location
+      for (const loc of liveState.locations) {
+        if (loc.current) {
+          result.push({
+            entry: this.locationToEntry(loc),
+            tier: 1,
+            priority: 100,
+            matchReason: 'current location',
+          });
+        }
+      }
+
+      // Items in inventory
+      for (const item of liveState.items) {
+        if (item.location === 'inventory') {
+          result.push({
+            entry: this.itemToEntry(item),
+            tier: 1,
+            priority: 80,
+            matchReason: 'in inventory',
+          });
+        }
+      }
+    }
+
+    // Then, add lorebook entries with always-inject mode
     for (const entry of entries) {
       let shouldInclude = false;
       let priority = 0;
@@ -200,40 +252,39 @@ export class EntryRetrievalService {
       // Check injection mode
       if (entry.injection.mode === 'always') {
         shouldInclude = true;
-        priority = 100;
+        priority = 90;
         reason = 'always inject';
       }
 
-      // Check state-based conditions
+      // Check state-based conditions (for imported lorebooks that have state)
       if (entry.state) {
         switch (entry.state.type) {
           case 'character':
             if ('isPresent' in entry.state && entry.state.isPresent) {
               shouldInclude = true;
-              priority = Math.max(priority, 95);
-              reason = 'character present';
+              priority = Math.max(priority, 85);
+              reason = 'lorebook: character present';
             }
             break;
           case 'location':
             if ('isCurrentLocation' in entry.state && entry.state.isCurrentLocation) {
               shouldInclude = true;
-              priority = Math.max(priority, 100);
-              reason = 'current location';
+              priority = Math.max(priority, 90);
+              reason = 'lorebook: current location';
             }
             break;
           case 'item':
             if ('inInventory' in entry.state && entry.state.inInventory) {
               shouldInclude = true;
-              priority = Math.max(priority, 80);
-              reason = 'in inventory';
+              priority = Math.max(priority, 75);
+              reason = 'lorebook: in inventory';
             }
             break;
           case 'faction':
-            // Include factions player is allied/hostile with
             if ('status' in entry.state && (entry.state.status === 'allied' || entry.state.status === 'hostile')) {
               shouldInclude = true;
               priority = Math.max(priority, 70);
-              reason = `faction ${entry.state.status}`;
+              reason = `lorebook: faction ${entry.state.status}`;
             }
             break;
         }
@@ -250,6 +301,111 @@ export class EntryRetrievalService {
     }
 
     return result;
+  }
+
+  /**
+   * Convert a live Character to an Entry-like object for context injection.
+   */
+  private characterToEntry(char: Character): Entry {
+    return {
+      id: `live-char-${char.id}`,
+      storyId: char.storyId,
+      name: char.name,
+      type: 'character',
+      description: char.description || '',
+      hiddenInfo: null,
+      aliases: [],
+      state: {
+        type: 'character',
+        isPresent: char.status === 'active',
+        lastSeenLocation: null,
+        currentDisposition: char.relationship,
+        relationship: { level: 0, status: char.relationship || 'unknown', history: [] },
+        knownFacts: char.traits,
+        revealedSecrets: [],
+      },
+      adventureState: null,
+      creativeState: null,
+      injection: { mode: 'always', keywords: [], priority: 95 },
+      firstMentioned: null,
+      lastMentioned: null,
+      mentionCount: 0,
+      createdBy: 'ai',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+  }
+
+  /**
+   * Convert a live Location to an Entry-like object for context injection.
+   */
+  private locationToEntry(loc: Location): Entry {
+    return {
+      id: `live-loc-${loc.id}`,
+      storyId: loc.storyId,
+      name: loc.name,
+      type: 'location',
+      description: loc.description || '',
+      hiddenInfo: null,
+      aliases: [],
+      state: {
+        type: 'location',
+        isCurrentLocation: loc.current,
+        visitCount: loc.visited ? 1 : 0,
+        changes: [],
+        presentCharacters: [],
+        presentItems: [],
+      },
+      adventureState: null,
+      creativeState: null,
+      injection: { mode: 'always', keywords: [], priority: 100 },
+      firstMentioned: null,
+      lastMentioned: null,
+      mentionCount: 0,
+      createdBy: 'ai',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+  }
+
+  /**
+   * Convert a live Item to an Entry-like object for context injection.
+   */
+  private itemToEntry(item: Item): Entry {
+    // Build description including quantity and equipped status
+    let desc = item.description || '';
+    if (item.quantity > 1) {
+      desc += ` (x${item.quantity})`;
+    }
+    if (item.equipped) {
+      desc += ' [equipped]';
+    }
+
+    return {
+      id: `live-item-${item.id}`,
+      storyId: item.storyId,
+      name: item.name,
+      type: 'item',
+      description: desc,
+      hiddenInfo: null,
+      aliases: [],
+      state: {
+        type: 'item',
+        inInventory: item.location === 'inventory',
+        currentLocation: item.location,
+        condition: item.equipped ? 'equipped' : null,
+        uses: [],
+      },
+      adventureState: null,
+      creativeState: null,
+      injection: { mode: 'always', keywords: [], priority: 80 },
+      firstMentioned: null,
+      lastMentioned: null,
+      mentionCount: 0,
+      createdBy: 'ai',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
   }
 
   /**
@@ -486,8 +642,9 @@ export async function getRelevantEntries(
   entries: Entry[],
   userInput: string,
   recentStoryEntries: StoryEntry[],
-  provider?: OpenRouterProvider
+  provider?: OpenRouterProvider,
+  liveState?: LiveWorldState
 ): Promise<EntryRetrievalResult> {
   const service = new EntryRetrievalService(provider || null);
-  return service.getRelevantEntries(entries, userInput, recentStoryEntries);
+  return service.getRelevantEntries(entries, userInput, recentStoryEntries, liveState);
 }
