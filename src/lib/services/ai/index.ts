@@ -8,6 +8,7 @@ import { ActionChoicesService, type ActionChoice, type ActionChoicesResult } fro
 import { StyleReviewerService, type StyleReviewResult } from './styleReviewer';
 import { LoreManagementService, type LoreManagementSettings } from './loreManagement';
 import { AgenticRetrievalService, type AgenticRetrievalSettings, type AgenticRetrievalResult } from './agenticRetrieval';
+import { TimelineFillService, type TimelineFillSettings, type TimelineFillResult } from './timelineFill';
 import { ContextBuilder, type ContextResult, type ContextConfig, DEFAULT_CONTEXT_CONFIG } from './context';
 import { EntryRetrievalService, type EntryRetrievalResult } from './entryRetrieval';
 import type { Message, GenerationResponse, StreamChunk } from './types';
@@ -585,6 +586,79 @@ class AIService {
    */
   formatAgenticRetrievalForPrompt(result: AgenticRetrievalResult): string {
     return AgenticRetrievalService.formatForPromptInjection(result);
+  }
+
+  /**
+   * Run timeline fill to gather context from past chapters.
+   * Per design doc section 3.1.4: Static Retrieval (Default)
+   *
+   * This is a "one-time" AI call that:
+   * 1. Analyzes the current scene and generates targeted queries
+   * 2. Executes those queries against chapter content in parallel
+   * 3. Returns results for injection into the narrator's prompt
+   */
+  async runTimelineFill(
+    userInput: string,
+    visibleEntries: StoryEntry[],
+    chapters: Chapter[],
+    allEntries: StoryEntry[]
+  ): Promise<TimelineFillResult> {
+    log('runTimelineFill called', {
+      userInputLength: userInput.length,
+      visibleEntriesCount: visibleEntries.length,
+      chaptersCount: chapters.length,
+      allEntriesCount: allEntries.length,
+    });
+
+    const provider = this.getProvider();
+    const timelineFill = new TimelineFillService(provider);
+
+    return await timelineFill.fillTimeline(
+      userInput,
+      visibleEntries,
+      chapters,
+      allEntries
+    );
+  }
+
+  /**
+   * Determine if timeline fill should be used for memory retrieval.
+   * Timeline fill is the default; agentic retrieval is used only if explicitly enabled
+   * and the story is long enough (chapters > threshold).
+   */
+  shouldUseTimelineFill(chapters: Chapter[]): boolean {
+    const timelineFillSettings = settings.systemServicesSettings.timelineFill;
+    const agenticSettings = settings.systemServicesSettings.agenticRetrieval;
+
+    // If timeline fill is disabled, don't use it
+    if (!timelineFillSettings?.enabled) {
+      return false;
+    }
+
+    // If agentic retrieval is enabled AND we're past the threshold, use agentic instead
+    if (agenticSettings?.enabled && chapters.length > (agenticSettings.agenticThreshold ?? 30)) {
+      return false;
+    }
+
+    // Default: use timeline fill
+    return true;
+  }
+
+  /**
+   * Format timeline fill result for prompt injection.
+   */
+  formatTimelineFillForPrompt(
+    chapters: Chapter[],
+    result: TimelineFillResult,
+    currentEntryPosition: number,
+    firstVisibleEntryPosition: number
+  ): string {
+    return TimelineFillService.formatForPromptInjection(
+      chapters,
+      result,
+      currentEntryPosition,
+      firstVisibleEntryPosition
+    );
   }
 
   /**

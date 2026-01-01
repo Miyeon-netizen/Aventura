@@ -9,7 +9,7 @@
     type AdvancedWizardSettings,
     SCENARIO_MODEL,
   } from '$lib/services/ai/scenario';
-  import { X, Key, Cpu, Palette, RefreshCw, Search, Settings2, RotateCcw, ChevronDown, ChevronUp, Brain, BookOpen, Lightbulb, Sparkles } from 'lucide-svelte';
+  import { X, Key, Cpu, Palette, RefreshCw, Search, Settings2, RotateCcw, ChevronDown, ChevronUp, Brain, BookOpen, Lightbulb, Sparkles, Clock } from 'lucide-svelte';
 
   let activeTab = $state<'api' | 'generation' | 'ui' | 'advanced'>('api');
 
@@ -20,12 +20,14 @@
   let showMemorySection = $state(false);
   let showSuggestionsSection = $state(false);
   let showStyleReviewerSection = $state(false);
+  let showTimelineFillSection = $state(false);
   let editingStoryPrompt = $state<'adventure' | 'creativeWriting' | null>(null);
   let editingProcess = $state<keyof AdvancedWizardSettings | null>(null);
   let editingClassifierPrompt = $state(false);
   let editingMemoryPrompt = $state<'chapterAnalysis' | 'chapterSummarization' | 'retrievalDecision' | null>(null);
   let editingSuggestionsPrompt = $state(false);
   let editingStyleReviewerPrompt = $state(false);
+  let editingTimelineFillPrompt = $state<'system' | 'answer' | null>(null);
 
   // Process labels for UI
   const processLabels: Record<keyof AdvancedWizardSettings, string> = {
@@ -1165,6 +1167,166 @@
                       {settings.systemServicesSettings.styleReviewer.systemPrompt.slice(0, 100)}...
                     </p>
                   {/if}
+                </div>
+              </div>
+            {/if}
+          </div>
+
+          <!-- Timeline Fill Section -->
+          <div class="border-t border-surface-700 pt-3">
+            <div class="flex items-center justify-between">
+              <button
+                class="flex items-center gap-2 text-left flex-1"
+                onclick={() => showTimelineFillSection = !showTimelineFillSection}
+              >
+                <Clock class="h-4 w-4 text-cyan-400" />
+                <div>
+                  <h3 class="text-sm font-medium text-surface-200">Timeline Fill</h3>
+                  <p class="text-xs text-surface-500">Retrieves context from past chapters (default)</p>
+                </div>
+              </button>
+              <div class="flex items-center gap-2">
+                <!-- Enable/Disable Toggle -->
+                <button
+                  class="relative inline-flex h-5 w-9 items-center rounded-full transition-colors"
+                  class:bg-accent-600={settings.systemServicesSettings.timelineFill.enabled}
+                  class:bg-surface-600={!settings.systemServicesSettings.timelineFill.enabled}
+                  onclick={async () => {
+                    settings.systemServicesSettings.timelineFill.enabled =
+                      !settings.systemServicesSettings.timelineFill.enabled;
+                    await settings.saveSystemServicesSettings();
+                  }}
+                  aria-label="Toggle timeline fill"
+                >
+                  <span
+                    class="inline-block h-3 w-3 transform rounded-full bg-white transition-transform"
+                    class:translate-x-5={settings.systemServicesSettings.timelineFill.enabled}
+                    class:translate-x-1={!settings.systemServicesSettings.timelineFill.enabled}
+                  ></span>
+                </button>
+                <button
+                  class="text-xs text-accent-400 hover:text-accent-300 flex items-center gap-1"
+                  onclick={() => settings.resetTimelineFillSettings()}
+                >
+                  <RotateCcw class="h-3 w-3" />
+                  Reset
+                </button>
+                <button onclick={() => showTimelineFillSection = !showTimelineFillSection}>
+                  {#if showTimelineFillSection}
+                    <ChevronUp class="h-4 w-4 text-surface-400" />
+                  {:else}
+                    <ChevronDown class="h-4 w-4 text-surface-400" />
+                  {/if}
+                </button>
+              </div>
+            </div>
+
+            {#if showTimelineFillSection}
+              <div class="mt-3 space-y-3">
+                <div class="card bg-surface-900 p-3">
+                  <p class="text-xs text-surface-400 mb-3">
+                    Timeline Fill generates targeted questions about past chapters based on the current scene,
+                    then retrieves answers to inject into the narrator's context. This is the default
+                    memory retrieval method (over agentic retrieval).
+                  </p>
+
+                  <!-- Model and Temperature Row -->
+                  <div class="grid grid-cols-2 gap-3 mb-3">
+                    <div>
+                      <label class="mb-1 block text-xs font-medium text-surface-400">Model</label>
+                      <input
+                        type="text"
+                        bind:value={settings.systemServicesSettings.timelineFill.model}
+                        onblur={() => settings.saveSystemServicesSettings()}
+                        placeholder="deepseek/deepseek-v3.2"
+                        class="input text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label class="mb-1 block text-xs font-medium text-surface-400">
+                        Temperature: {settings.systemServicesSettings.timelineFill.temperature.toFixed(2)}
+                      </label>
+                      <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.05"
+                        bind:value={settings.systemServicesSettings.timelineFill.temperature}
+                        onchange={() => settings.saveSystemServicesSettings()}
+                        class="w-full h-2"
+                      />
+                    </div>
+                  </div>
+
+                  <!-- Max Queries -->
+                  <div class="mb-3">
+                    <label class="mb-1 block text-xs font-medium text-surface-400">
+                      Max Queries: {settings.systemServicesSettings.timelineFill.maxQueries}
+                    </label>
+                    <input
+                      type="range"
+                      min="1"
+                      max="10"
+                      step="1"
+                      bind:value={settings.systemServicesSettings.timelineFill.maxQueries}
+                      onchange={() => settings.saveSystemServicesSettings()}
+                      class="w-full h-2"
+                    />
+                    <div class="flex justify-between text-xs text-surface-500">
+                      <span>Fewer (faster)</span>
+                      <span>More (thorough)</span>
+                    </div>
+                  </div>
+
+                  <!-- Query Generation Prompt -->
+                  <div class="mb-3 border-t border-surface-700 pt-3">
+                    <div class="flex items-center justify-between mb-2">
+                      <span class="text-xs font-medium text-surface-400">Query Generation Prompt</span>
+                      <button
+                        class="text-xs text-accent-400 hover:text-accent-300"
+                        onclick={() => editingTimelineFillPrompt = editingTimelineFillPrompt === 'system' ? null : 'system'}
+                      >
+                        {editingTimelineFillPrompt === 'system' ? 'Close' : 'Edit'}
+                      </button>
+                    </div>
+                    {#if editingTimelineFillPrompt === 'system'}
+                      <textarea
+                        bind:value={settings.systemServicesSettings.timelineFill.systemPrompt}
+                        onblur={() => settings.saveSystemServicesSettings()}
+                        class="input text-xs min-h-[150px] resize-y font-mono w-full"
+                        rows="8"
+                      ></textarea>
+                    {:else}
+                      <p class="text-xs text-surface-400 line-clamp-2">
+                        {settings.systemServicesSettings.timelineFill.systemPrompt.slice(0, 100)}...
+                      </p>
+                    {/if}
+                  </div>
+
+                  <!-- Query Answer Prompt -->
+                  <div class="border-t border-surface-700 pt-3">
+                    <div class="flex items-center justify-between mb-2">
+                      <span class="text-xs font-medium text-surface-400">Query Answer Prompt</span>
+                      <button
+                        class="text-xs text-accent-400 hover:text-accent-300"
+                        onclick={() => editingTimelineFillPrompt = editingTimelineFillPrompt === 'answer' ? null : 'answer'}
+                      >
+                        {editingTimelineFillPrompt === 'answer' ? 'Close' : 'Edit'}
+                      </button>
+                    </div>
+                    {#if editingTimelineFillPrompt === 'answer'}
+                      <textarea
+                        bind:value={settings.systemServicesSettings.timelineFill.queryAnswerPrompt}
+                        onblur={() => settings.saveSystemServicesSettings()}
+                        class="input text-xs min-h-[100px] resize-y font-mono w-full"
+                        rows="5"
+                      ></textarea>
+                    {:else}
+                      <p class="text-xs text-surface-400 line-clamp-2">
+                        {settings.systemServicesSettings.timelineFill.queryAnswerPrompt.slice(0, 100)}...
+                      </p>
+                    {/if}
+                  </div>
                 </div>
               </div>
             {/if}

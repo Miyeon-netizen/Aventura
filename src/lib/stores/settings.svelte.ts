@@ -199,6 +199,20 @@ Identify overused phrases, sentence patterns, and stylistic tics that reduce pro
 - Provide context-appropriate alternatives
 - Focus on actionable improvements
 - Respond with valid JSON only`,
+
+  timelineFill: `<role>
+You are an expert narrative analyzer, who is able to efficiently determine what crucial information is missing from the current narrative.
+</role>
+
+<task>
+You will be provided with the entirety of the current chapter, as well as summaries of previous chapters. Your task is to succinctly ascertain what information is needed from previous chapters for the most recent scene and query accordingly, as to ensure that all information needed for accurate portrayal of the current scene is gathered.
+</task>
+
+<constraints>
+Query based ONLY on the information visible in the chapter summaries or things that may be implied to have happened in them. Do not reference current events in your queries, as the assistant that answers queries is only provided the history of that chapter, and would have no knowledge of events outside of the chapters queried. However, do not ask about information directly answered in the summaries. Instead, try to ask questions that 'fill in the gaps'. The maximum range of chapters (startChapter - endChapter) for a single query is 3, but you may make as many queries as you wish.
+</constraints>`,
+
+  timelineFillAnswer: `You answer specific questions about story chapters. Be concise and factual. Only include information that directly answers the question. If the chapter doesn't contain relevant information, say "Not mentioned in this chapter."`,
 };
 
 // Classifier service settings
@@ -345,6 +359,27 @@ export function getDefaultAgenticRetrievalSettings(): AgenticRetrievalSettings {
   };
 }
 
+// Timeline Fill service settings (per design doc section 3.1.4: Static Retrieval)
+export interface TimelineFillSettings {
+  enabled: boolean;
+  model: string;
+  temperature: number;
+  maxQueries: number;
+  systemPrompt: string;
+  queryAnswerPrompt: string;
+}
+
+export function getDefaultTimelineFillSettings(): TimelineFillSettings {
+  return {
+    enabled: true, // Default: enabled (this is the default over agentic retrieval)
+    model: 'deepseek/deepseek-v3.2',
+    temperature: 0.3,
+    maxQueries: 5,
+    systemPrompt: DEFAULT_SERVICE_PROMPTS.timelineFill,
+    queryAnswerPrompt: DEFAULT_SERVICE_PROMPTS.timelineFillAnswer,
+  };
+}
+
 // Combined system services settings
 export interface SystemServicesSettings {
   classifier: ClassifierSettings;
@@ -353,6 +388,7 @@ export interface SystemServicesSettings {
   styleReviewer: StyleReviewerSettings;
   loreManagement: LoreManagementSettings;
   agenticRetrieval: AgenticRetrievalSettings;
+  timelineFill: TimelineFillSettings;
 }
 
 export function getDefaultSystemServicesSettings(): SystemServicesSettings {
@@ -363,6 +399,7 @@ export function getDefaultSystemServicesSettings(): SystemServicesSettings {
     styleReviewer: getDefaultStyleReviewerSettings(),
     loreManagement: getDefaultLoreManagementSettings(),
     agenticRetrieval: getDefaultAgenticRetrievalSettings(),
+    timelineFill: getDefaultTimelineFillSettings(),
   };
 }
 
@@ -476,6 +513,7 @@ class SettingsStore {
             styleReviewer: { ...defaults.styleReviewer, ...loaded.styleReviewer },
             loreManagement: { ...defaults.loreManagement, ...loaded.loreManagement },
             agenticRetrieval: { ...defaults.agenticRetrieval, ...loaded.agenticRetrieval },
+            timelineFill: { ...defaults.timelineFill, ...loaded.timelineFill },
           };
         } catch {
           this.systemServicesSettings = getDefaultSystemServicesSettings();
@@ -602,6 +640,11 @@ class SettingsStore {
 
   async resetAgenticRetrievalSettings() {
     this.systemServicesSettings.agenticRetrieval = getDefaultAgenticRetrievalSettings();
+    await this.saveSystemServicesSettings();
+  }
+
+  async resetTimelineFillSettings() {
+    this.systemServicesSettings.timelineFill = getDefaultTimelineFillSettings();
     await this.saveSystemServicesSettings();
   }
 

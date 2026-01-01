@@ -306,28 +306,63 @@
       const retrievalTasks: Promise<void>[] = [];
 
       // Task 1: Memory retrieval - get relevant chapter context
+      // Use timeline fill (default) or basic retrieval depending on settings
       if (story.chapters.length > 0 && story.memoryConfig.enableRetrieval) {
         retrievalTasks.push((async () => {
           try {
-            log('Starting memory retrieval...', { chaptersCount: story.chapters.length });
-            const retrievalDecision = await aiService.decideRetrieval(
-              userActionContent,
-              story.visibleEntries.slice(-5),
-              story.chapters,
-              story.memoryConfig
-            );
+            // Check if timeline fill should be used (default over agentic/basic)
+            if (aiService.shouldUseTimelineFill(story.chapters)) {
+              log('Starting timeline fill...', { chaptersCount: story.chapters.length });
 
-            if (retrievalDecision.relevantChapterIds.length > 0) {
-              retrievedChapterContext = aiService.buildRetrievedContextBlock(
+              // Timeline fill: generates queries and executes them in one go
+              const timelineResult = await aiService.runTimelineFill(
+                userActionContent,
+                story.visibleEntries,
                 story.chapters,
-                retrievalDecision
+                story.entries // All entries for querying chapter content
               );
-              log('Memory retrieval complete', {
-                relevantChapters: retrievalDecision.relevantChapterIds.length,
-                contextLength: retrievedChapterContext?.length ?? 0,
-              });
+
+              if (timelineResult.responses.length > 0) {
+                // Calculate positions for prompt injection
+                const currentPosition = story.entries.length;
+                const firstVisiblePosition = story.entries.length - story.visibleEntries.length + 1;
+
+                retrievedChapterContext = aiService.formatTimelineFillForPrompt(
+                  story.chapters,
+                  timelineResult,
+                  currentPosition,
+                  firstVisiblePosition
+                );
+                log('Timeline fill complete', {
+                  queriesGenerated: timelineResult.queries.length,
+                  responsesCount: timelineResult.responses.length,
+                  contextLength: retrievedChapterContext?.length ?? 0,
+                });
+              } else {
+                log('Timeline fill returned no responses (no relevant queries)');
+              }
             } else {
-              log('No relevant chapters found for retrieval');
+              // Fallback to basic retrieval decision
+              log('Starting basic memory retrieval...', { chaptersCount: story.chapters.length });
+              const retrievalDecision = await aiService.decideRetrieval(
+                userActionContent,
+                story.visibleEntries.slice(-5),
+                story.chapters,
+                story.memoryConfig
+              );
+
+              if (retrievalDecision.relevantChapterIds.length > 0) {
+                retrievedChapterContext = aiService.buildRetrievedContextBlock(
+                  story.chapters,
+                  retrievalDecision
+                );
+                log('Basic memory retrieval complete', {
+                  relevantChapters: retrievalDecision.relevantChapterIds.length,
+                  contextLength: retrievedChapterContext?.length ?? 0,
+                });
+              } else {
+                log('No relevant chapters found for retrieval');
+              }
             }
           } catch (retrievalError) {
             log('Memory retrieval failed (non-fatal)', retrievalError);
