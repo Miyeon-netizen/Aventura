@@ -731,11 +731,11 @@ NEVER use second person ("you"). Always use "${userName}" or "he/she/they".
 </protagonist_as_character>
 
 <prohibited_patterns>
-- Banned words: orbs (for eyes), tresses, alabaster, porcelain, delve, visceral, palpable, chiseled, ozone
-- Banned phrases: "a testament to," "the weight of," "hung in the air," "sent shivers," "the scent of ozone"
-- "Not X, but Y" constructs: avoid "not anger, but something deeper"—just describe the thing directly
-- Purple prose: overwrought metaphors, consecutive similes, excessive adjectives
-- Telling emotions: "She felt sad"—show through concrete detail instead
+Avoid cliché phrases: "like a physical blow," "ribs like a trapped bird," "heart hammering against ribs," "dust motes dancing," "silence stretched," "metallic tang," "voice dropping an octave," "for the first time in years"
+
+Banned words: ozone, orbs (for eyes), tresses, alabaster, porcelain
+
+Also avoid: purple prose, "not X but Y" constructs, telling emotions directly
 </prohibited_patterns>
 
 Respond with valid JSON:
@@ -792,10 +792,11 @@ NO questions. NO "What do you do?" Just the pregnant moment.
 </ending>
 
 <prohibited_patterns>
-- Banned words: orbs (for eyes), tresses, alabaster, porcelain, delve, visceral, palpable, chiseled, ozone
-- Banned phrases: "a testament to," "the weight of," "hung in the air," "sent shivers," "the scent of ozone"
-- "Not X, but Y" constructs: avoid "not anger, but something deeper"—just describe the thing directly
-- Purple prose: overwrought metaphors, consecutive similes, excessive adjectives
+Avoid cliché phrases: "like a physical blow," "dust motes dancing," "silence stretched," "metallic tang," "for the first time in years"
+
+Banned words: ozone, orbs (for eyes), tresses, alabaster, porcelain
+
+Also avoid: purple prose, "not X but Y" constructs
 </prohibited_patterns>
 
 Respond with valid JSON:
@@ -968,11 +969,11 @@ NEVER use second person ("you"). Always use "${userName}" or "he/she/they".
 </what_to_write>
 
 <prohibited_patterns>
-- Banned words: orbs (for eyes), tresses, alabaster, porcelain, delve, visceral, palpable, chiseled, ozone
-- Banned phrases: "a testament to," "the weight of," "hung in the air," "sent shivers," "the scent of ozone"
-- "Not X, but Y" constructs: avoid "not anger, but something deeper"—just describe the thing directly
-- Purple prose: overwrought metaphors, consecutive similes, excessive adjectives
-- Telling emotions: "She felt sad"—show through concrete detail instead
+Avoid cliché phrases: "like a physical blow," "ribs like a trapped bird," "heart hammering against ribs," "dust motes dancing," "silence stretched," "metallic tang," "voice dropping an octave," "for the first time in years"
+
+Banned words: ozone, orbs (for eyes), tresses, alabaster, porcelain
+
+Also avoid: purple prose, "not X but Y" constructs, telling emotions directly
 </prohibited_patterns>
 
 Write ONLY prose. No JSON, no metadata.`;
@@ -1013,10 +1014,11 @@ NO questions. Just the pregnant moment.
 </ending>
 
 <prohibited_patterns>
-- Banned words: orbs (for eyes), tresses, alabaster, porcelain, delve, visceral, palpable, chiseled, ozone
-- Banned phrases: "a testament to," "the weight of," "hung in the air," "sent shivers," "the scent of ozone"
-- "Not X, but Y" constructs: avoid "not anger, but something deeper"—just describe the thing directly
-- Purple prose: overwrought metaphors, consecutive similes, excessive adjectives
+Avoid cliché phrases: "like a physical blow," "dust motes dancing," "silence stretched," "metallic tang," "for the first time in years"
+
+Banned words: ozone, orbs (for eyes), tresses, alabaster, porcelain
+
+Also avoid: purple prose, "not X but Y" constructs
 </prohibited_patterns>
 
 Write ONLY prose. No JSON, no metadata.`;
