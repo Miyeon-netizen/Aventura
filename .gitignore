@@ -26,6 +26,7 @@ src-tauri/gen/
 # Android
 *.apk
 *.aab
+*.idsig
 *.keystore
 *.jks
 *.key
@@ -102,8 +103,3 @@ architecture.md
 CLAUDE.md
 aventura-release.keystore
 aventura-release.keystore.old
-aventura-release-signed.apk.idsig
-adventura.apk.idsig
-aventura-release.apk
-aventura.apk
-aventura-release-signed.apk

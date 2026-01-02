@@ -14,8 +14,9 @@
 
   let { suggestions, loading, onSelect, onRefresh }: Props = $props();
 
-  // Collapsed state - persists during session
-  let collapsed = $state(false);
+  // Collapsed state - starts collapsed on mobile to reduce clutter
+  const isMobile = typeof window !== 'undefined' && window.innerWidth < 640;
+  let collapsed = $state(isMobile);
 
   const typeColors: Record<string, string> = {
     action: 'text-blue-400',

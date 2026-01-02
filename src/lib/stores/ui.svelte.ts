@@ -106,6 +106,16 @@ class UIStore {
     this.sidebarOpen = !this.sidebarOpen;
   }
 
+  /**
+   * Set mobile-friendly defaults when opening a story.
+   * Closes sidebar and other expanded elements on mobile to reduce clutter.
+   */
+  setMobileDefaults() {
+    if (typeof window !== 'undefined' && window.innerWidth < 640) {
+      this.sidebarOpen = false;
+    }
+  }
+
   openSettings() {
     this.settingsModalOpen = true;
   }

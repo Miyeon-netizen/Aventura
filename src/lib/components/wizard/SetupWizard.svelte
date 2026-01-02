@@ -1079,7 +1079,7 @@
                     <input
                       type="text"
                       bind:value={manualCharacterName}
-                      placeholder="e.g., Kira, Marcus, Zephyr..."
+                      placeholder="e.g., Alex, Jordan, Sam..."
                       class="input"
                     />
                   </div>
@@ -1505,7 +1505,7 @@
               </p>
               <textarea
                 bind:value={openingGuidance}
-                placeholder="e.g., The scene opens at night in a crowded tavern. Elara sits alone in a corner, nursing a drink, when a mysterious stranger approaches her table with urgent news about her missing brother..."
+                placeholder="e.g., The scene opens at night in a crowded tavern. Sarah sits alone in a corner, nursing a drink, when a mysterious stranger approaches her table with urgent news about her missing brother..."
                 class="input min-h-[100px] resize-y text-sm"
                 rows="4"
               ></textarea>

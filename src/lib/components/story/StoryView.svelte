@@ -8,11 +8,47 @@
 
   let storyContainer: HTMLDivElement;
 
+  // Track if user has scrolled up during streaming (to allow reading while generating)
+  let userScrolledUp = $state(false);
+
+  // Reset scroll break when streaming ends
+  $effect(() => {
+    if (!ui.isStreaming) {
+      userScrolledUp = false;
+    }
+  });
+
+  // Check if container is scrolled near bottom
+  function isNearBottom(): boolean {
+    if (!storyContainer) return true;
+    const threshold = 100; // pixels from bottom
+    return storyContainer.scrollHeight - storyContainer.scrollTop - storyContainer.clientHeight < threshold;
+  }
+
+  // Check if device is mobile (Tailwind's sm breakpoint)
+  function isMobile(): boolean {
+    return typeof window !== 'undefined' && window.innerWidth < 640;
+  }
+
+  // Handle scroll events during streaming
+  function handleScroll() {
+    // Only track user scroll-ups on mobile during streaming
+    if (!isMobile() || !ui.isStreaming) return;
+
+    // If user scrolled away from bottom, break auto-scroll
+    if (!isNearBottom()) {
+      userScrolledUp = true;
+    }
+  }
+
   // Auto-scroll to bottom when new entries are added or streaming content changes
   $effect(() => {
     // Track both entries and streaming state for scroll
     const _ = story.entries.length;
     const __ = ui.streamingContent;
+
+    // Skip auto-scroll if user has scrolled up on mobile during streaming
+    if (userScrolledUp) return;
 
     if (storyContainer) {
       storyContainer.scrollTop = storyContainer.scrollHeight;
@@ -25,6 +61,7 @@
   <div
     bind:this={storyContainer}
     class="flex-1 overflow-y-auto px-3 sm:px-6 py-3 sm:py-4"
+    onscroll={handleScroll}
   >
     <div class="mx-auto max-w-3xl space-y-3 sm:space-y-4">
       {#if story.entries.length === 0 && !ui.isStreaming}

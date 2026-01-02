@@ -311,6 +311,9 @@ class StoryStore {
       await ui.loadSuggestions(storyId);
     }
 
+    // Set mobile-friendly defaults (close sidebar, etc.)
+    ui.setMobileDefaults();
+
     // Emit event
     emitStoryLoaded(storyId, story.mode);
   }
