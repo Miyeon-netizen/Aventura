@@ -596,7 +596,8 @@ class AIService {
     recentEntries: StoryEntry[],
     chapters: Chapter[],
     entries: Entry[],
-    onQueryChapter?: (chapterNumber: number, question: string) => Promise<string>
+    onQueryChapter?: (chapterNumber: number, question: string) => Promise<string>,
+    onQueryChapters?: (startChapter: number, endChapter: number, question: string) => Promise<string>
   ): Promise<AgenticRetrievalResult> {
     log('runAgenticRetrieval called', {
       userInputLength: userInput.length,
@@ -610,7 +611,8 @@ class AIService {
 
     return await retrieval.runRetrieval(
       { userInput, recentEntries, chapters, entries },
-      onQueryChapter
+      onQueryChapter,
+      onQueryChapters
     );
   }
 
@@ -661,6 +663,46 @@ class AIService {
     return await timelineFill.fillTimeline(
       userInput,
       visibleEntries,
+      chapters,
+      allEntries
+    );
+  }
+
+  /**
+   * Answer a specific chapter question using full chapter content (max 3 chapters).
+   */
+  async answerChapterQuestion(
+    chapterNumber: number,
+    question: string,
+    chapters: Chapter[],
+    allEntries: StoryEntry[]
+  ): Promise<string> {
+    const provider = this.getProvider();
+    const timelineFill = new TimelineFillService(provider);
+    return await timelineFill.answerQuestionForChapters(
+      question,
+      [chapterNumber],
+      chapters,
+      allEntries
+    );
+  }
+
+  /**
+   * Answer a range question across chapters (max 3 chapters).
+   */
+  async answerChapterRangeQuestion(
+    startChapter: number,
+    endChapter: number,
+    question: string,
+    chapters: Chapter[],
+    allEntries: StoryEntry[]
+  ): Promise<string> {
+    const provider = this.getProvider();
+    const timelineFill = new TimelineFillService(provider);
+    return await timelineFill.answerQuestionForChapterRange(
+      question,
+      startChapter,
+      endChapter,
       chapters,
       allEntries
     );

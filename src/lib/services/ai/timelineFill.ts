@@ -183,7 +183,8 @@ Provide a JSON array where each item describes a question to ask about the timel
 - "query": the question string.
 - EITHER "chapters": an array of chapter numbers to query,
   OR both "startChapter" and "endChapter" integers defining an inclusive range.
-You may include both styles in the same array. Return ONLY the JSON array, no code fences or commentary.`;
+You may include both styles in the same array. The maximum number of chapters per query is 3.
+Return ONLY the JSON array, no code fences or commentary.`;
 
     try {
       const response = await this.provider.generateResponse({
@@ -241,6 +242,72 @@ You may include both styles in the same array. Return ONLY the JSON array, no co
     });
 
     return Promise.all(queryPromises);
+  }
+
+  /**
+   * Answer a specific question using a limited set of chapters (max 3).
+   */
+  async answerQuestionForChapters(
+    question: string,
+    chapterNumbers: number[],
+    chapters: Chapter[],
+    allEntries: StoryEntry[]
+  ): Promise<string> {
+    const limitedNumbers = chapterNumbers.filter(n => typeof n === 'number').slice(0, 3);
+    if (limitedNumbers.length === 0) {
+      return 'Chapters not found.';
+    }
+
+    const chapterIds: string[] = [];
+    const validNumbers: number[] = [];
+
+    for (const num of limitedNumbers) {
+      const chapter = chapters.find(ch => ch.number === num);
+      if (chapter) {
+        chapterIds.push(chapter.id);
+        validNumbers.push(num);
+      }
+    }
+
+    if (chapterIds.length === 0) {
+      return 'Chapters not found.';
+    }
+
+    const chapterContentMap = this.buildChapterContentMap(chapters, allEntries);
+    const queryChapters = chapters.filter(ch => chapterIds.includes(ch.id));
+    const combinedContent = queryChapters.map(ch => {
+      const content = chapterContentMap.get(ch.id);
+      if (content) {
+        return `=== Chapter ${ch.number}: ${ch.title || 'Untitled'} ===\n${content}`;
+      }
+      return `=== Chapter ${ch.number}: ${ch.title || 'Untitled'} ===\n[Summary only] ${ch.summary}`;
+    }).join('\n\n');
+
+    const result = await this.answerFromCombinedContent(
+      { query: question, chapterIds, chapterNumbers: validNumbers },
+      combinedContent
+    );
+
+    return result.answer;
+  }
+
+  /**
+   * Answer a question across a contiguous chapter range (max 3 chapters).
+   */
+  async answerQuestionForChapterRange(
+    question: string,
+    startChapter: number,
+    endChapter: number,
+    chapters: Chapter[],
+    allEntries: StoryEntry[]
+  ): Promise<string> {
+    const start = startChapter;
+    const end = Math.min(endChapter, startChapter + 2);
+    const chapterNumbers: number[] = [];
+    for (let i = start; i <= end; i++) {
+      chapterNumbers.push(i);
+    }
+    return this.answerQuestionForChapters(question, chapterNumbers, chapters, allEntries);
   }
 
   /**
@@ -343,7 +410,9 @@ Provide a concise, factual answer based only on the chapter content above. If th
 
         // Handle "chapters" array format
         if (Array.isArray(q.chapters)) {
-          chapterNumbers = q.chapters.filter((n: any) => typeof n === 'number');
+          chapterNumbers = q.chapters
+            .filter((n: any) => typeof n === 'number')
+            .slice(0, 3);
         }
         // Handle "startChapter"/"endChapter" range format
         else if (typeof q.startChapter === 'number' && typeof q.endChapter === 'number') {

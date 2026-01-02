@@ -57,7 +57,7 @@ const RETRIEVAL_TOOLS: Tool[] = [
     type: 'function',
     function: {
       name: 'query_chapters',
-      description: 'Ask a question across a range of chapters for broader information',
+      description: 'Ask a question across a range of chapters (max 3 per query) for broader information',
       parameters: {
         type: 'object',
         properties: {
@@ -155,7 +155,7 @@ export class AgenticRetrievalService {
   }
 
   private get model(): string {
-    return this.settingsOverride?.model ?? settings.systemServicesSettings.agenticRetrieval?.model ?? 'deepseek/deepseek-v3.2';
+    return this.settingsOverride?.model ?? settings.systemServicesSettings.agenticRetrieval?.model ?? 'minimax/minimax-m2.1';
   }
 
   private get temperature(): number {
@@ -176,7 +176,8 @@ export class AgenticRetrievalService {
    */
   async runRetrieval(
     context: AgenticRetrievalContext,
-    onQueryChapter?: (chapterNumber: number, question: string) => Promise<string>
+    onQueryChapter?: (chapterNumber: number, question: string) => Promise<string>,
+    onQueryChapters?: (startChapter: number, endChapter: number, question: string) => Promise<string>
   ): Promise<AgenticRetrievalResult> {
     const sessionId = crypto.randomUUID();
     const queriedChapters: number[] = [];
@@ -200,6 +201,8 @@ export class AgenticRetrievalService {
     let complete = false;
     let iterations = 0;
     let retrievedContext = '';
+    let consecutiveNoToolCalls = 0;
+    const MAX_NO_TOOL_CALL_RETRIES = 2;
 
     while (!complete && iterations < this.maxIterations) {
       iterations++;
@@ -213,25 +216,60 @@ export class AgenticRetrievalService {
           maxTokens: 1500,
           tools: RETRIEVAL_TOOLS,
           tool_choice: 'auto',
+          extraBody: {
+            reasoning: { effort: 'high' },
+            provider: { only: ['Minimax'] },
+          },
         });
 
         log('Retrieval agent response', {
           hasContent: !!response.content,
           hasToolCalls: !!response.tool_calls,
           toolCallCount: response.tool_calls?.length ?? 0,
+          finishReason: response.finish_reason,
+          hasReasoning: !!response.reasoning,
+          hasReasoningDetails: !!response.reasoning_details,
         });
 
-        // If no tool calls, agent is done
-        if (!response.tool_calls || response.tool_calls.length === 0) {
-          log('Agent finished without tool call');
-          break;
+        if (response.reasoning) {
+          log('Agent reasoning:', response.reasoning.substring(0, 500));
         }
+
+        // If no tool calls, prompt the agent to use tools or finish
+        if (!response.tool_calls || response.tool_calls.length === 0) {
+          consecutiveNoToolCalls++;
+          log(`No tool calls (${consecutiveNoToolCalls}/${MAX_NO_TOOL_CALL_RETRIES})`);
+
+          if (response.content) {
+            messages.push({
+              role: 'assistant',
+              content: response.content,
+              reasoning: response.reasoning ?? null,
+              reasoning_details: response.reasoning_details,
+            });
+          }
+
+          if (consecutiveNoToolCalls >= MAX_NO_TOOL_CALL_RETRIES) {
+            log('Max no-tool-call retries reached, ending retrieval');
+            break;
+          }
+
+          messages.push({
+            role: 'user',
+            content: 'Please use the available tools to gather relevant context, or call finish_retrieval when you are done.',
+          });
+          continue;
+        }
+
+        consecutiveNoToolCalls = 0;
 
         // Add assistant response to messages
         messages.push({
           role: 'assistant',
           content: response.content,
           tool_calls: response.tool_calls,
+          reasoning: response.reasoning ?? null,
+          reasoning_details: response.reasoning_details,
         });
 
         // Execute each tool call
@@ -240,7 +278,8 @@ export class AgenticRetrievalService {
             toolCall,
             context,
             queriedChapters,
-            onQueryChapter
+            onQueryChapter,
+            onQueryChapters
           );
 
           if (toolCall.function.name === 'finish_retrieval') {
@@ -310,7 +349,8 @@ Please gather relevant context from past chapters that will help respond to this
     toolCall: ToolCall,
     context: AgenticRetrievalContext,
     queriedChapters: number[],
-    onQueryChapter?: (chapterNumber: number, question: string) => Promise<string>
+    onQueryChapter?: (chapterNumber: number, question: string) => Promise<string>,
+    onQueryChapters?: (startChapter: number, endChapter: number, question: string) => Promise<string>
   ): Promise<string> {
     const args = JSON.parse(toolCall.function.arguments);
     log('Executing retrieval tool:', toolCall.function.name, args);
@@ -367,7 +407,7 @@ Please gather relevant context from past chapters that will help respond to this
 
       case 'query_chapters': {
         const startChapter = args.start_chapter;
-        const endChapter = args.end_chapter;
+        const endChapter = Math.min(args.end_chapter, startChapter + 2);
         const question = args.question;
 
         const chapters = context.chapters.filter(
@@ -383,6 +423,19 @@ Please gather relevant context from past chapters that will help respond to this
 
         if (chapters.length === 0) {
           return JSON.stringify({ error: 'No chapters in specified range' });
+        }
+
+        if (onQueryChapters) {
+          try {
+            const answer = await onQueryChapters(startChapter, endChapter, question);
+            return JSON.stringify({
+              range: { start: startChapter, end: endChapter },
+              question,
+              answer,
+            });
+          } catch (error) {
+            log('Query chapters failed, falling back to summaries:', error);
+          }
         }
 
         const combinedSummaries = chapters.map(c =>
@@ -454,7 +507,7 @@ export interface AgenticRetrievalSettings {
 export function getDefaultAgenticRetrievalSettings(): AgenticRetrievalSettings {
   return {
     enabled: false, // Disabled by default, static retrieval is usually sufficient
-    model: 'deepseek/deepseek-v3.2',
+    model: 'minimax/minimax-m2.1',
     temperature: 0.3,
     maxIterations: 10,
     systemPrompt: DEFAULT_AGENTIC_RETRIEVAL_PROMPT,

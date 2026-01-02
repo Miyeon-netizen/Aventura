@@ -424,34 +424,73 @@
               return;
             }
 
-            log('Starting timeline fill...', { chaptersCount: story.chapters.length });
+            const useAgenticTimelineFill = aiService.shouldUseAgenticRetrieval(story.chapters);
 
-            // Timeline fill: generates queries and executes them in one go
-            const timelineResult = await aiService.runTimelineFill(
-              userActionContent,
-              story.visibleEntries,
-              story.chapters,
-              story.entries // All entries for querying chapter content
-            );
+            if (useAgenticTimelineFill) {
+              log('Starting agentic timeline fill...', { chaptersCount: story.chapters.length });
 
-            if (timelineResult.responses.length > 0) {
-              // Calculate positions for prompt injection
-              const currentPosition = story.entries.length;
-              const firstVisiblePosition = story.entries.length - story.visibleEntries.length + 1;
-
-              retrievedChapterContext = aiService.formatTimelineFillForPrompt(
+              const agenticResult = await aiService.runAgenticRetrieval(
+                userActionContent,
+                story.visibleEntries,
                 story.chapters,
-                timelineResult,
-                currentPosition,
-                firstVisiblePosition
+                story.lorebookEntries,
+                (chapterNumber, question) =>
+                  aiService.answerChapterQuestion(
+                    chapterNumber,
+                    question,
+                    story.chapters,
+                    story.entries
+                  ),
+                (startChapter, endChapter, question) =>
+                  aiService.answerChapterRangeQuestion(
+                    startChapter,
+                    endChapter,
+                    question,
+                    story.chapters,
+                    story.entries
+                  )
               );
-              log('Timeline fill complete', {
-                queriesGenerated: timelineResult.queries.length,
-                responsesCount: timelineResult.responses.length,
-                contextLength: retrievedChapterContext?.length ?? 0,
-              });
+
+              if (agenticResult.context) {
+                retrievedChapterContext = aiService.formatAgenticRetrievalForPrompt(agenticResult);
+                log('Agentic timeline fill complete', {
+                  iterations: agenticResult.iterations,
+                  queriedChapters: agenticResult.queriedChapters.length,
+                  contextLength: retrievedChapterContext?.length ?? 0,
+                });
+              } else {
+                log('Agentic timeline fill returned no context');
+              }
             } else {
-              log('Timeline fill returned no responses (no relevant queries)');
+              log('Starting timeline fill...', { chaptersCount: story.chapters.length });
+
+              // Timeline fill: generates queries and executes them in one go
+              const timelineResult = await aiService.runTimelineFill(
+                userActionContent,
+                story.visibleEntries,
+                story.chapters,
+                story.entries // All entries for querying chapter content
+              );
+
+              if (timelineResult.responses.length > 0) {
+                // Calculate positions for prompt injection
+                const currentPosition = story.entries.length;
+                const firstVisiblePosition = story.entries.length - story.visibleEntries.length + 1;
+
+                retrievedChapterContext = aiService.formatTimelineFillForPrompt(
+                  story.chapters,
+                  timelineResult,
+                  currentPosition,
+                  firstVisiblePosition
+                );
+                log('Timeline fill complete', {
+                  queriesGenerated: timelineResult.queries.length,
+                  responsesCount: timelineResult.responses.length,
+                  contextLength: retrievedChapterContext?.length ?? 0,
+                });
+              } else {
+                log('Timeline fill returned no responses (no relevant queries)');
+              }
             }
           } catch (retrievalError) {
             log('Memory retrieval failed (non-fatal)', retrievalError);

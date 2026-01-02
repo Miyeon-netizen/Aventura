@@ -29,6 +29,7 @@
   let editingSuggestionsPrompt = $state(false);
   let editingStyleReviewerPrompt = $state(false);
   let editingTimelineFillPrompt = $state<'system' | 'answer' | null>(null);
+  let editingAgenticRetrievalPrompt = $state(false);
 
   // Process labels for UI
   const processLabels: Record<keyof AdvancedWizardSettings, string> = {
@@ -1432,6 +1433,130 @@
                     then retrieves answers to inject into the narrator's context. This is the default
                     memory retrieval method (over agentic retrieval).
                   </p>
+
+                  <!-- Agentic Timeline Fill -->
+                  <div class="mb-3 border-t border-surface-700 pt-3">
+                    <div class="flex items-center justify-between">
+                      <div>
+                        <p class="text-xs font-medium text-surface-300">Agentic Timeline Fill</p>
+                        <p class="text-xs text-surface-500">
+                          Uses tool-calling retrieval when chapters exceed the threshold.
+                        </p>
+                      </div>
+                      <div class="flex items-center gap-2">
+                        <button
+                          class="relative inline-flex h-5 w-9 items-center rounded-full transition-colors"
+                          class:bg-accent-600={settings.systemServicesSettings.agenticRetrieval.enabled}
+                          class:bg-surface-600={!settings.systemServicesSettings.agenticRetrieval.enabled}
+                          onclick={async () => {
+                            settings.systemServicesSettings.agenticRetrieval.enabled =
+                              !settings.systemServicesSettings.agenticRetrieval.enabled;
+                            await settings.saveSystemServicesSettings();
+                          }}
+                          aria-label="Toggle agentic timeline fill"
+                        >
+                          <span
+                            class="inline-block h-3 w-3 transform rounded-full bg-white transition-transform"
+                            class:translate-x-5={settings.systemServicesSettings.agenticRetrieval.enabled}
+                            class:translate-x-1={!settings.systemServicesSettings.agenticRetrieval.enabled}
+                          ></span>
+                        </button>
+                        <button
+                          class="text-xs text-accent-400 hover:text-accent-300 flex items-center gap-1"
+                          onclick={() => settings.resetAgenticRetrievalSettings()}
+                        >
+                          <RotateCcw class="h-3 w-3" />
+                          Reset
+                        </button>
+                      </div>
+                    </div>
+
+                    {#if settings.systemServicesSettings.agenticRetrieval.enabled}
+                      <div class="mt-3 space-y-3">
+                        <div class="grid grid-cols-2 gap-3">
+                          <div>
+                            <label class="mb-1 block text-xs font-medium text-surface-400">Model</label>
+                            <input
+                              type="text"
+                              bind:value={settings.systemServicesSettings.agenticRetrieval.model}
+                              onblur={() => settings.saveSystemServicesSettings()}
+                              placeholder="minimax/minimax-m2.1"
+                              class="input text-sm"
+                            />
+                          </div>
+                          <div>
+                            <label class="mb-1 block text-xs font-medium text-surface-400">
+                              Temperature: {settings.systemServicesSettings.agenticRetrieval.temperature.toFixed(2)}
+                            </label>
+                            <input
+                              type="range"
+                              min="0"
+                              max="1"
+                              step="0.05"
+                              bind:value={settings.systemServicesSettings.agenticRetrieval.temperature}
+                              onchange={() => settings.saveSystemServicesSettings()}
+                              class="w-full h-2"
+                            />
+                          </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-3">
+                          <div>
+                            <label class="mb-1 block text-xs font-medium text-surface-400">
+                              Max Iterations: {settings.systemServicesSettings.agenticRetrieval.maxIterations}
+                            </label>
+                            <input
+                              type="range"
+                              min="3"
+                              max="30"
+                              step="1"
+                              bind:value={settings.systemServicesSettings.agenticRetrieval.maxIterations}
+                              onchange={() => settings.saveSystemServicesSettings()}
+                              class="w-full h-2"
+                            />
+                          </div>
+                          <div>
+                            <label class="mb-1 block text-xs font-medium text-surface-400">
+                              Chapter Threshold: {settings.systemServicesSettings.agenticRetrieval.agenticThreshold}
+                            </label>
+                            <input
+                              type="range"
+                              min="5"
+                              max="100"
+                              step="1"
+                              bind:value={settings.systemServicesSettings.agenticRetrieval.agenticThreshold}
+                              onchange={() => settings.saveSystemServicesSettings()}
+                              class="w-full h-2"
+                            />
+                          </div>
+                        </div>
+
+                        <div class="border-t border-surface-700 pt-3">
+                          <div class="flex items-center justify-between mb-2">
+                            <span class="text-xs font-medium text-surface-400">Agentic Prompt</span>
+                            <button
+                              class="text-xs text-accent-400 hover:text-accent-300"
+                              onclick={() => editingAgenticRetrievalPrompt = !editingAgenticRetrievalPrompt}
+                            >
+                              {editingAgenticRetrievalPrompt ? 'Close' : 'Edit'}
+                            </button>
+                          </div>
+                          {#if editingAgenticRetrievalPrompt}
+                            <textarea
+                              bind:value={settings.systemServicesSettings.agenticRetrieval.systemPrompt}
+                              onblur={() => settings.saveSystemServicesSettings()}
+                              class="input text-xs min-h-[120px] resize-y font-mono w-full"
+                              rows="6"
+                            ></textarea>
+                          {:else}
+                            <p class="text-xs text-surface-400 line-clamp-2">
+                              {settings.systemServicesSettings.agenticRetrieval.systemPrompt.slice(0, 100)}...
+                            </p>
+                          {/if}
+                        </div>
+                      </div>
+                    {/if}
+                  </div>
 
                   <!-- Model and Temperature Row -->
                   <div class="grid grid-cols-2 gap-3 mb-3">

@@ -375,6 +375,7 @@ Guidelines:
 - Use exact names from the story text
 - When merging, combine all relevant information
 - Focus on facts that would help maintain story consistency
+- Prefer targeted updates (e.g., search/replace) instead of rewriting long descriptions
 
 Use your tools to review the story and make necessary changes. When finished, call finish_lore_management with a summary.`;
 
@@ -416,7 +417,7 @@ The context you provide will be injected into the narrator's prompt to help main
 export function getDefaultAgenticRetrievalSettings(): AgenticRetrievalSettings {
   return {
     enabled: false, // Disabled by default, static retrieval usually sufficient
-    model: 'x-ai/grok-4.1-fast',
+    model: 'minimax/minimax-m2.1',
     temperature: 0.3,
     maxIterations: 10,
     systemPrompt: DEFAULT_AGENTIC_RETRIEVAL_PROMPT,

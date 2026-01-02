@@ -10,6 +10,7 @@ import type {
   EntryType,
   EntryState,
   EntryPreview,
+  EntryInjection,
   LoreChange,
   LoreManagementResult,
   Chapter,
@@ -98,6 +99,14 @@ const LORE_MANAGEMENT_TOOLS: Tool[] = [
             type: 'string',
             description: 'Information the protagonist does not know yet',
           },
+          state: {
+            type: 'object',
+            description: 'Optional full state object (overrides default state)',
+          },
+          injection: {
+            type: 'object',
+            description: 'Optional injection rules (overrides default injection)',
+          },
         },
         required: ['name', 'type', 'description'],
       },
@@ -132,6 +141,42 @@ const LORE_MANAGEMENT_TOOLS: Tool[] = [
             type: 'string',
             description: 'New hidden info (optional)',
           },
+          description_replace: {
+            type: 'object',
+            description: 'Search/replace update for description',
+            properties: {
+              find: { type: 'string', description: 'Text to find' },
+              replace: { type: 'string', description: 'Replacement text (default: empty)' },
+              match_all: { type: 'boolean', description: 'Replace all matches (default: false)' },
+            },
+            required: ['find'],
+          },
+          hidden_info_replace: {
+            type: 'object',
+            description: 'Search/replace update for hidden info',
+            properties: {
+              find: { type: 'string', description: 'Text to find' },
+              replace: { type: 'string', description: 'Replacement text (default: empty)' },
+              match_all: { type: 'boolean', description: 'Replace all matches (default: false)' },
+            },
+            required: ['find'],
+          },
+          state: {
+            type: 'object',
+            description: 'Full state object (overrides existing)',
+          },
+          state_update: {
+            type: 'object',
+            description: 'Partial state update (merged into existing)',
+          },
+          injection: {
+            type: 'object',
+            description: 'Full injection rules (overrides existing)',
+          },
+          injection_update: {
+            type: 'object',
+            description: 'Partial injection update (merged into existing)',
+          },
         },
         required: ['entry_id'],
       },
@@ -162,6 +207,14 @@ const LORE_MANAGEMENT_TOOLS: Tool[] = [
             type: 'array',
             items: { type: 'string' },
             description: 'Combined aliases',
+          },
+          merged_state: {
+            type: 'object',
+            description: 'Optional merged state object',
+          },
+          merged_injection: {
+            type: 'object',
+            description: 'Optional merged injection rules',
           },
         },
         required: ['entry_ids', 'merged_name', 'merged_description'],
@@ -310,6 +363,7 @@ Guidelines:
 - Use exact names from the story text
 - When merging, combine all relevant information
 - Focus on facts that would help maintain story consistency
+- Prefer targeted updates (e.g., search/replace) instead of rewriting long descriptions
 
 Use your tools to review the story and make necessary changes. When finished, call finish_lore_management with a summary.`;
 
@@ -616,12 +670,62 @@ Use the available tools to make necessary changes, then call finish_lore_managem
         if (entryIndex === -1) {
           return JSON.stringify({ error: `Entry ${args.entry_id} not found` });
         }
-        const previous = { ...context.entries[entryIndex] };
+        const previous = {
+          ...context.entries[entryIndex],
+          state: JSON.parse(JSON.stringify(context.entries[entryIndex].state)),
+          injection: JSON.parse(JSON.stringify(context.entries[entryIndex].injection)),
+        };
         const updates: Partial<Entry> = {};
-        if (args.name) updates.name = args.name;
-        if (args.description) updates.description = args.description;
-        if (args.aliases) updates.aliases = args.aliases;
-        if (args.hidden_info) updates.hiddenInfo = args.hidden_info;
+        if (args.name !== undefined) updates.name = args.name;
+        if (args.description !== undefined) updates.description = args.description;
+        if (args.aliases !== undefined) updates.aliases = args.aliases;
+        if (args.hidden_info !== undefined) updates.hiddenInfo = args.hidden_info;
+
+        if (args.description_replace && updates.description === undefined) {
+          updates.description = this.applyTextReplace(
+            context.entries[entryIndex].description,
+            args.description_replace
+          );
+        }
+        if (args.hidden_info_replace && updates.hiddenInfo === undefined) {
+          updates.hiddenInfo = this.applyTextReplace(
+            context.entries[entryIndex].hiddenInfo ?? '',
+            args.hidden_info_replace
+          );
+        }
+
+        if (args.state !== undefined || args.state_update !== undefined) {
+          const baseState = args.state !== undefined
+            ? this.normalizeState(context.entries[entryIndex].type, args.state)
+            : this.normalizeState(context.entries[entryIndex].type, context.entries[entryIndex].state);
+          const mergedState = args.state_update
+            ? { ...baseState, ...args.state_update }
+            : baseState;
+          if (!mergedState.type) mergedState.type = baseState.type;
+          updates.state = mergedState as EntryState;
+        }
+
+        if (args.injection !== undefined || args.injection_update !== undefined) {
+          const baseInjection = args.injection !== undefined
+            ? this.normalizeInjection(
+              updates.name ?? context.entries[entryIndex].name,
+              updates.aliases ?? context.entries[entryIndex].aliases,
+              args.injection
+            )
+            : this.normalizeInjection(
+              context.entries[entryIndex].name,
+              context.entries[entryIndex].aliases,
+              context.entries[entryIndex].injection
+            );
+          const mergedInjection = args.injection_update
+            ? { ...baseInjection, ...args.injection_update }
+            : baseInjection;
+          updates.injection = this.normalizeInjection(
+            updates.name ?? context.entries[entryIndex].name,
+            updates.aliases ?? context.entries[entryIndex].aliases,
+            mergedInjection as EntryInjection
+          );
+        }
 
         Object.assign(context.entries[entryIndex], updates);
         await context.onUpdateEntry(args.entry_id, updates);
@@ -642,6 +746,8 @@ Use the available tools to make necessary changes, then call finish_lore_managem
           type: entriesToMerge[0].type,
           description: args.merged_description,
           aliases: args.merged_aliases || [],
+          state: args.merged_state,
+          injection: args.merged_injection,
         });
 
         // Remove old entries from context
@@ -752,12 +858,15 @@ Use the available tools to make necessary changes, then call finish_lore_managem
     description: string;
     aliases?: string[];
     hidden_info?: string;
+    state?: EntryState;
+    injection?: EntryInjection;
   }): Entry {
     const now = Date.now();
     const id = crypto.randomUUID();
 
     // Create type-specific state
-    const state = this.createDefaultState(args.type);
+    const state = this.normalizeState(args.type, args.state);
+    const injection = this.normalizeInjection(args.name, args.aliases ?? [], args.injection);
 
     return {
       id,
@@ -770,11 +879,7 @@ Use the available tools to make necessary changes, then call finish_lore_managem
       state,
       adventureState: null,
       creativeState: null,
-      injection: {
-        mode: 'keyword',
-        keywords: [args.name.toLowerCase(), ...(args.aliases || []).map(a => a.toLowerCase())],
-        priority: 0,
-      },
+      injection,
       firstMentioned: null,
       lastMentioned: null,
       mentionCount: 0,
@@ -783,6 +888,44 @@ Use the available tools to make necessary changes, then call finish_lore_managem
       updatedAt: now,
       loreManagementBlacklisted: false,
     };
+  }
+
+  private normalizeState(type: EntryType, state?: EntryState | null): EntryState {
+    if (state && typeof state === 'object') {
+      return state.type ? state : { ...state, type } as EntryState;
+    }
+    return this.createDefaultState(type);
+  }
+
+  private normalizeInjection(
+    name: string,
+    aliases: string[],
+    injection?: EntryInjection | null
+  ): EntryInjection {
+    if (injection && typeof injection === 'object') {
+      return {
+        mode: injection.mode ?? 'keyword',
+        keywords: Array.isArray(injection.keywords) ? injection.keywords : [],
+        priority: typeof injection.priority === 'number' ? injection.priority : 0,
+      };
+    }
+    return {
+      mode: 'keyword',
+      keywords: [name.toLowerCase(), ...aliases.map(alias => alias.toLowerCase())],
+      priority: 0,
+    };
+  }
+
+  private applyTextReplace(
+    value: string,
+    replaceSpec?: { find?: string; replace?: string; match_all?: boolean }
+  ): string {
+    if (!replaceSpec?.find) return value;
+    const replacement = replaceSpec.replace ?? '';
+    if (replaceSpec.match_all) {
+      return value.split(replaceSpec.find).join(replacement);
+    }
+    return value.replace(replaceSpec.find, replacement);
   }
 
   private createDefaultState(type: EntryType): EntryState {
