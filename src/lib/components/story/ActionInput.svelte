@@ -196,8 +196,8 @@
     // Generate chapter summary
     const summary = await aiService.summarizeChapter(chapterEntries);
 
-    // Create the chapter
-    const chapterNumber = story.chapters.length + 1;
+    // Create the chapter - use database method to handle deletions correctly
+    const chapterNumber = await story.getNextChapterNumber();
     const chapter: Chapter = {
       id: crypto.randomUUID(),
       storyId: story.currentStory.id,

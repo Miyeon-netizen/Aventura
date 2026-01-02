@@ -92,9 +92,27 @@ class StoryStore {
 
   get lastChapterEndIndex(): number {
     if (this.chapters.length === 0) return 0;
-    const lastChapter = this.chapters[this.chapters.length - 1];
+
+    // Sort chapters by number to ensure we get the actual last chapter
+    const sortedChapters = [...this.chapters].sort((a, b) => a.number - b.number);
+    const lastChapter = sortedChapters[sortedChapters.length - 1];
+
     const endEntry = this.entries.find(e => e.id === lastChapter.endEntryId);
-    return endEntry ? this.entries.indexOf(endEntry) + 1 : 0;
+    if (endEntry) {
+      return this.entries.indexOf(endEntry) + 1;
+    }
+
+    // Fallback: if endEntryId references a deleted entry, estimate based on entry counts
+    // This prevents all entries from being treated as visible
+    log('Warning: Chapter endEntryId not found, using fallback calculation', {
+      chapterId: lastChapter.id,
+      chapterNumber: lastChapter.number,
+      endEntryId: lastChapter.endEntryId,
+    });
+
+    // Sum up all chapter entry counts as a fallback estimate
+    const totalChapterEntries = sortedChapters.reduce((sum, ch) => sum + ch.entryCount, 0);
+    return Math.min(totalChapterEntries, this.entries.length);
   }
 
   get messagesSinceLastChapter(): number {
@@ -122,6 +140,66 @@ class StoryStore {
     const entryIndex = this.entries.findIndex(e => e.id === entryId);
     if (entryIndex === -1) return false;
     return entryIndex < this.lastChapterEndIndex;
+  }
+
+  /**
+   * Validate chapter integrity and repair issues.
+   * Called after loading a story to ensure chapter data is consistent.
+   * Returns true if repairs were made.
+   */
+  private async validateChapterIntegrity(): Promise<boolean> {
+    if (this.chapters.length === 0) return false;
+
+    let repairsMade = false;
+    const entryIdSet = new Set(this.entries.map(e => e.id));
+    const chaptersToDelete: string[] = [];
+
+    // Sort chapters by number for proper validation
+    const sortedChapters = [...this.chapters].sort((a, b) => a.number - b.number);
+
+    for (const chapter of sortedChapters) {
+      const hasValidStart = entryIdSet.has(chapter.startEntryId);
+      const hasValidEnd = entryIdSet.has(chapter.endEntryId);
+
+      if (!hasValidStart || !hasValidEnd) {
+        log('Chapter has invalid entry references, marking for deletion', {
+          chapterId: chapter.id,
+          chapterNumber: chapter.number,
+          hasValidStart,
+          hasValidEnd,
+          startEntryId: chapter.startEntryId,
+          endEntryId: chapter.endEntryId,
+        });
+        chaptersToDelete.push(chapter.id);
+        repairsMade = true;
+      }
+    }
+
+    // Delete invalid chapters from database and local state
+    for (const chapterId of chaptersToDelete) {
+      try {
+        await database.deleteChapter(chapterId);
+        log('Deleted invalid chapter:', chapterId);
+      } catch (error) {
+        log('Failed to delete invalid chapter:', chapterId, error);
+      }
+    }
+
+    if (chaptersToDelete.length > 0) {
+      this.chapters = this.chapters.filter(ch => !chaptersToDelete.includes(ch.id));
+    }
+
+    // Ensure chapters are sorted by number
+    this.chapters = [...this.chapters].sort((a, b) => a.number - b.number);
+
+    if (repairsMade) {
+      log('Chapter integrity validation complete', {
+        deletedChapters: chaptersToDelete.length,
+        remainingChapters: this.chapters.length,
+      });
+    }
+
+    return repairsMade;
   }
 
   // Load all stories for library view
@@ -167,6 +245,9 @@ class StoryStore {
       chapters: chapters.length,
       checkpoints: checkpoints.length,
     });
+
+    // Validate and repair chapter integrity (handles orphaned references)
+    await this.validateChapterIntegrity();
 
     // Load persisted action choices for adventure mode
     if (story.mode === 'adventure') {
@@ -711,6 +792,12 @@ class StoryStore {
     emitChapterCreated(chapter.id, chapter.number, chapter.title);
   }
 
+  // Get the next chapter number from the database (handles deletions correctly)
+  async getNextChapterNumber(): Promise<number> {
+    if (!this.currentStory) throw new Error('No story loaded');
+    return await database.getNextChapterNumber(this.currentStory.id);
+  }
+
   // Create a checkpoint (snapshot of current state)
   async createCheckpoint(name: string): Promise<Checkpoint> {
     if (!this.currentStory) throw new Error('No story loaded');
@@ -762,7 +849,8 @@ class StoryStore {
     this.locations = [...checkpoint.locationsSnapshot];
     this.items = [...checkpoint.itemsSnapshot];
     this.storyBeats = [...checkpoint.storyBeatsSnapshot];
-    this.chapters = [...checkpoint.chaptersSnapshot];
+    // Sort chapters by number to ensure correct ordering
+    this.chapters = [...checkpoint.chaptersSnapshot].sort((a, b) => a.number - b.number);
 
     log('Checkpoint restored');
 
