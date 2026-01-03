@@ -65,8 +65,8 @@
 
     // Check file extension (case-insensitive)
     const fileName = file.name.toLowerCase();
-    if (!fileName.endsWith('.json')) {
-      error = 'Please select a JSON file (.json)';
+    if (!fileName.endsWith('.json') && !fileName.endsWith('.avt')) {
+      error = 'Please select a JSON or Aventura file (.json or .avt)';
       return;
     }
 
@@ -235,14 +235,14 @@
         </div>
         <input
           type="file"
-          accept=".json,application/json,*/*"
+          accept=".json,.avt,application/json,*/*"
           class="hidden"
           bind:this={fileInput}
           onchange={handleFileSelect}
         />
 
         <p class="text-xs text-surface-500">
-          Supports Aventura and SillyTavern lorebook formats (.json)
+          Supports Aventura (.avt, .json) and SillyTavern lorebook formats
         </p>
       {:else}
         <!-- Preview -->

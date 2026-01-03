@@ -177,7 +177,7 @@
         </button>
         <input
           type="file"
-          accept=".avt,.json,application/json,*/*"
+          accept="*/*,.avt,.json,application/json,application/octet-stream"
           class="hidden"
           bind:this={importFileInput}
           onchange={handleImportFileSelect}
