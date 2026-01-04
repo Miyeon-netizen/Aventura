@@ -168,6 +168,7 @@ export interface AIProvider {
   name: string;
 
   generateResponse(request: GenerationRequest): Promise<GenerationResponse>;
+  generateWithTools(request: AgenticRequest): Promise<AgenticResponse>;
   streamResponse(request: GenerationRequest): AsyncIterable<StreamChunk>;
   listModels(): Promise<ModelInfo[]>;
   validateApiKey(): Promise<boolean>;

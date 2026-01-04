@@ -1,4 +1,4 @@
-import type { OpenRouterProvider } from './openrouter';
+import type { AIProvider } from './types';
 import type {
   Tool,
   ToolCall,
@@ -174,10 +174,10 @@ export interface AgenticRetrievalResult {
 }
 
 export class AgenticRetrievalService {
-  private provider: OpenRouterProvider;
+  private provider: AIProvider;
   private settingsOverride?: Partial<AgenticRetrievalSettings>;
 
-  constructor(provider: OpenRouterProvider, settingsOverride?: Partial<AgenticRetrievalSettings>) {
+  constructor(provider: AIProvider, settingsOverride?: Partial<AgenticRetrievalSettings>) {
     this.provider = provider;
     this.settingsOverride = settingsOverride;
   }

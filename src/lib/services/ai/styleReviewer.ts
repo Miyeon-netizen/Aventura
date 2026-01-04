@@ -1,4 +1,4 @@
-import type { OpenRouterProvider } from './openrouter';
+import type { AIProvider } from './types';
 import type { StoryEntry } from '$lib/types';
 import { settings } from '$lib/stores/settings.svelte';
 
@@ -32,9 +32,9 @@ export interface StyleReviewResult {
  * Runs in the background every N messages to provide writing guidance.
  */
 export class StyleReviewerService {
-  private provider: OpenRouterProvider;
+  private provider: AIProvider;
 
-  constructor(provider: OpenRouterProvider) {
+  constructor(provider: AIProvider) {
     this.provider = provider;
   }
 

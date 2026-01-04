@@ -1,4 +1,4 @@
-import type { OpenRouterProvider } from './openrouter';
+import type { AIProvider } from './types';
 import type {
   Tool,
   ToolCall,
@@ -388,11 +388,11 @@ interface ToolExecutionContext {
 }
 
 export class LoreManagementService {
-  private provider: OpenRouterProvider;
+  private provider: AIProvider;
   private changes: LoreChange[] = [];
   private settingsOverride?: Partial<LoreManagementSettings>;
 
-  constructor(provider: OpenRouterProvider, settingsOverride?: Partial<LoreManagementSettings>) {
+  constructor(provider: AIProvider, settingsOverride?: Partial<LoreManagementSettings>) {
     this.provider = provider;
     this.settingsOverride = settingsOverride;
   }

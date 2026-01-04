@@ -1,5 +1,6 @@
 import { settings } from '$lib/stores/settings.svelte';
 import { OpenRouterProvider } from './openrouter';
+import { NanoGPTProvider } from './nanogpt';
 import { BUILTIN_TEMPLATES } from '$lib/services/templates';
 import { ClassifierService, type ClassificationResult, type ClassificationContext } from './classifier';
 import { MemoryService, type ChapterAnalysis, type ChapterSummary, type RetrievalDecision, DEFAULT_MEMORY_CONFIG } from './memory';
@@ -11,7 +12,7 @@ import { AgenticRetrievalService, type AgenticRetrievalSettings, type AgenticRet
 import { TimelineFillService, type TimelineFillSettings, type TimelineFillResult } from './timelineFill';
 import { ContextBuilder, type ContextResult, type ContextConfig, DEFAULT_CONTEXT_CONFIG } from './context';
 import { EntryRetrievalService, type EntryRetrievalResult, type ActivationTracker } from './entryRetrieval';
-import type { Message, GenerationResponse, StreamChunk } from './types';
+import type { Message, GenerationResponse, StreamChunk, AIProvider } from './types';
 import type { Story, StoryEntry, Character, Location, Item, StoryBeat, Chapter, MemoryConfig, Entry, LoreManagementResult } from '$lib/types';
 
 const DEBUG = true;
@@ -35,12 +36,22 @@ interface WorldState {
 
 class AIService {
   private getProvider() {
-    const apiKey = settings.apiSettings.openrouterApiKey;
-    log('Getting provider, API key configured:', !!apiKey);
-    if (!apiKey) {
-      throw new Error('No API key configured');
+    const providerType = settings.apiSettings.provider;
+    log('Getting provider:', providerType);
+
+    if (providerType === 'nanogpt') {
+      const apiKey = settings.apiSettings.nanogptApiKey;
+      if (!apiKey) {
+        throw new Error('No NanoGPT API key configured');
+      }
+      return new NanoGPTProvider(apiKey);
+    } else {
+      const apiKey = settings.apiSettings.openrouterApiKey;
+      if (!apiKey) {
+        throw new Error('No OpenRouter API key configured');
+      }
+      return new OpenRouterProvider(apiKey);
     }
-    return new OpenRouterProvider(apiKey);
   }
 
   async generateResponse(
@@ -480,7 +491,7 @@ class AIService {
       hasRetrievedContext: !!retrievedChapterContext,
     });
 
-    let provider: OpenRouterProvider | null = null;
+    let provider: AIProvider | null = null;
     try {
       provider = this.getProvider();
     } catch {
@@ -532,7 +543,7 @@ class AIService {
       hasActivationTracker: !!activationTracker,
     });
 
-    let provider: OpenRouterProvider | null = null;
+    let provider: AIProvider | null = null;
     try {
       provider = this.getProvider();
     } catch {
