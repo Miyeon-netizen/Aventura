@@ -9,7 +9,7 @@
  */
 
 import type { Entry, EntryType, StoryEntry, Character, Location, Item } from '$lib/types';
-import type { OpenRouterProvider } from './openrouter';
+import type { AIProvider } from './types';
 import { settings } from '$lib/stores/settings.svelte';
 
 /**
@@ -91,10 +91,10 @@ export interface EntryRetrievalResult {
 }
 
 export class EntryRetrievalService {
-  private provider: OpenRouterProvider | null;
+  private provider: AIProvider | null;
   private config: EntryRetrievalConfig;
 
-  constructor(provider: OpenRouterProvider | null, config: Partial<EntryRetrievalConfig> = {}) {
+  constructor(provider: AIProvider | null, config: Partial<EntryRetrievalConfig> = {}) {
     this.provider = provider;
     this.config = { ...DEFAULT_ENTRY_RETRIEVAL_CONFIG, ...config };
   }
@@ -726,7 +726,7 @@ export async function getRelevantEntries(
   entries: Entry[],
   userInput: string,
   recentStoryEntries: StoryEntry[],
-  provider?: OpenRouterProvider,
+  provider?: AIProvider,
   liveState?: LiveWorldState,
   activationTracker?: ActivationTracker
 ): Promise<EntryRetrievalResult> {

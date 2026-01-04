@@ -537,7 +537,9 @@ export function getDefaultSystemServicesSettings(): SystemServicesSettings {
 // Settings Store using Svelte 5 runes
 class SettingsStore {
   apiSettings = $state<APISettings>({
+    provider: 'openrouter',
     openrouterApiKey: null,
+    nanogptApiKey: null,
     defaultModel: 'z-ai/glm-4.7',
     temperature: 0.8,
     maxTokens: 8192,
@@ -571,12 +573,16 @@ class SettingsStore {
 
     try {
       // Load API settings
-      const apiKey = await database.getSetting('openrouter_api_key');
+      const provider = await database.getSetting('provider');
+      const openrouterApiKey = await database.getSetting('openrouter_api_key');
+      const nanogptApiKey = await database.getSetting('nanogpt_api_key');
       const defaultModel = await database.getSetting('default_model');
       const temperature = await database.getSetting('temperature');
       const maxTokens = await database.getSetting('max_tokens');
 
-      if (apiKey) this.apiSettings.openrouterApiKey = apiKey;
+      if (provider) this.apiSettings.provider = provider as 'openrouter' | 'nanogpt';
+      if (openrouterApiKey) this.apiSettings.openrouterApiKey = openrouterApiKey;
+      if (nanogptApiKey) this.apiSettings.nanogptApiKey = nanogptApiKey;
       if (defaultModel) this.apiSettings.defaultModel = defaultModel;
       if (temperature) this.apiSettings.temperature = parseFloat(temperature);
       if (maxTokens) this.apiSettings.maxTokens = parseInt(maxTokens);
@@ -676,9 +682,19 @@ class SettingsStore {
     }
   }
 
-  async setApiKey(key: string) {
+  async setProvider(provider: 'openrouter' | 'nanogpt') {
+    this.apiSettings.provider = provider;
+    await database.setSetting('provider', provider);
+  }
+
+  async setOpenRouterApiKey(key: string) {
     this.apiSettings.openrouterApiKey = key;
     await database.setSetting('openrouter_api_key', key);
+  }
+
+  async setNanoGPTApiKey(key: string) {
+    this.apiSettings.nanogptApiKey = key;
+    await database.setSetting('nanogpt_api_key', key);
   }
 
   async setDefaultModel(model: string) {
@@ -733,6 +749,9 @@ class SettingsStore {
   }
 
   get hasApiKey(): boolean {
+    if (this.apiSettings.provider === 'nanogpt') {
+      return !!this.apiSettings.nanogptApiKey;
+    }
     return !!this.apiSettings.openrouterApiKey;
   }
 
@@ -842,11 +861,15 @@ class SettingsStore {
    * This preserves the API key but resets everything else.
    */
   async resetAllSettings(preserveApiKey = true) {
-    const apiKey = preserveApiKey ? this.apiSettings.openrouterApiKey : null;
+    const openrouterApiKey = preserveApiKey ? this.apiSettings.openrouterApiKey : null;
+    const nanogptApiKey = preserveApiKey ? this.apiSettings.nanogptApiKey : null;
+    const provider = preserveApiKey ? this.apiSettings.provider : 'openrouter';
 
     // Reset API settings (except key if preserving)
     this.apiSettings = {
-      openrouterApiKey: apiKey,
+      provider,
+      openrouterApiKey,
+      nanogptApiKey,
       defaultModel: 'z-ai/glm-4.7',
       temperature: 0.8,
       maxTokens: 8192,

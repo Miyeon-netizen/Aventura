@@ -1,4 +1,4 @@
-import type { OpenRouterProvider } from './openrouter';
+import type { AIProvider } from './types';
 import type { Character, Location, Item, StoryBeat } from '$lib/types';
 import { settings, type ClassifierSettings } from '$lib/stores/settings.svelte';
 
@@ -111,10 +111,10 @@ export interface ClassificationContext {
 }
 
 export class ClassifierService {
-  private provider: OpenRouterProvider;
+  private provider: AIProvider;
   private settingsOverride?: Partial<ClassifierSettings>;
 
-  constructor(provider: OpenRouterProvider, settingsOverride?: Partial<ClassifierSettings>) {
+  constructor(provider: AIProvider, settingsOverride?: Partial<ClassifierSettings>) {
     this.provider = provider;
     this.settingsOverride = settingsOverride;
   }

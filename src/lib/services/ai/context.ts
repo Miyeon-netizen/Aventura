@@ -9,7 +9,7 @@
  */
 
 import type { Character, Location, Item, StoryBeat, StoryEntry, Chapter } from '$lib/types';
-import type { OpenRouterProvider } from './openrouter';
+import type { AIProvider } from './types';
 
 const DEBUG = true;
 
@@ -65,10 +65,10 @@ export interface ContextResult {
 }
 
 export class ContextBuilder {
-  private provider: OpenRouterProvider | null;
+  private provider: AIProvider | null;
   private config: ContextConfig;
 
-  constructor(provider: OpenRouterProvider | null, config: Partial<ContextConfig> = {}) {
+  constructor(provider: AIProvider | null, config: Partial<ContextConfig> = {}) {
     this.provider = provider;
     this.config = { ...DEFAULT_CONTEXT_CONFIG, ...config };
   }

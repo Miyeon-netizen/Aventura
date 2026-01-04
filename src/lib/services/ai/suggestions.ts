@@ -1,4 +1,4 @@
-import type { OpenRouterProvider } from './openrouter';
+import type { AIProvider } from './types';
 import type { StoryEntry, StoryBeat, Entry } from '$lib/types';
 import { settings, type SuggestionsSettings } from '$lib/stores/settings.svelte';
 
@@ -20,10 +20,10 @@ export interface SuggestionsResult {
 }
 
 export class SuggestionsService {
-  private provider: OpenRouterProvider;
+  private provider: AIProvider;
   private settingsOverride?: Partial<SuggestionsSettings>;
 
-  constructor(provider: OpenRouterProvider, settingsOverride?: Partial<SuggestionsSettings>) {
+  constructor(provider: AIProvider, settingsOverride?: Partial<SuggestionsSettings>) {
     this.provider = provider;
     this.settingsOverride = settingsOverride;
   }

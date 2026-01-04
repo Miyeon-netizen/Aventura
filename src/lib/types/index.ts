@@ -362,7 +362,9 @@ export interface UIState {
 
 // API Settings
 export interface APISettings {
+  provider: 'openrouter' | 'nanogpt';
   openrouterApiKey: string | null;
+  nanogptApiKey: string | null;
   defaultModel: string;
   temperature: number;
   maxTokens: number;

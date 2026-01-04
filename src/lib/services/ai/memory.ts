@@ -1,4 +1,4 @@
-import type { OpenRouterProvider } from './openrouter';
+import type { AIProvider } from './types';
 import type { Chapter, StoryEntry, MemoryConfig } from '$lib/types';
 import { settings, type MemorySettings } from '$lib/stores/settings.svelte';
 
@@ -48,10 +48,10 @@ export interface RetrievedContext {
 }
 
 export class MemoryService {
-  private provider: OpenRouterProvider;
+  private provider: AIProvider;
   private settingsOverride?: Partial<MemorySettings>;
 
-  constructor(provider: OpenRouterProvider, settingsOverride?: Partial<MemorySettings>) {
+  constructor(provider: AIProvider, settingsOverride?: Partial<MemorySettings>) {
     this.provider = provider;
     this.settingsOverride = settingsOverride;
   }

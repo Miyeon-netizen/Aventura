@@ -3,6 +3,7 @@
   import { ui } from '$lib/stores/ui.svelte';
   import { settings, DEFAULT_SERVICE_PROMPTS } from '$lib/stores/settings.svelte';
   import { OpenRouterProvider } from '$lib/services/ai/openrouter';
+  import { NanoGPTProvider } from '$lib/services/ai/nanogpt';
   import type { ModelInfo } from '$lib/services/ai/types';
   import type { ThemeId } from '$lib/types';
   import {
@@ -44,6 +45,8 @@
   // Local state for API key (to avoid showing actual key)
   let apiKeyInput = $state('');
   let apiKeySet = $state(false);
+  let nanogptApiKeyInput = $state('');
+  let nanogptApiKeySet = $state(false);
 
   // Update checking state
   let updateInfo = $state<UpdateInfo | null>(null);
@@ -106,6 +109,7 @@
 
   $effect(() => {
     apiKeySet = !!settings.apiSettings.openrouterApiKey;
+    nanogptApiKeySet = !!settings.apiSettings.nanogptApiKey;
   });
 
   // Fetch models on mount (public endpoint, no API key needed)
@@ -126,12 +130,26 @@
     modelError = null;
 
     try {
-      console.log('[SettingsModal] Creating OpenRouterProvider...');
-      // Models endpoint is public, doesn't need API key
-      const provider = new OpenRouterProvider('');
+      let fetchedModels: ModelInfo[] = [];
 
-      console.log('[SettingsModal] Calling listModels...');
-      const fetchedModels = await provider.listModels();
+      if (settings.apiSettings.provider === 'nanogpt') {
+        console.log('[SettingsModal] Creating NanoGPTProvider...');
+        const apiKey = settings.apiSettings.nanogptApiKey;
+        if (!apiKey) {
+           // NanoGPT requires API key for models
+           throw new Error('NanoGPT API key required to fetch models');
+        }
+        const provider = new NanoGPTProvider(apiKey);
+        console.log('[SettingsModal] Calling listModels...');
+        fetchedModels = await provider.listModels();
+      } else {
+        console.log('[SettingsModal] Creating OpenRouterProvider...');
+        // Models endpoint is public, doesn't need API key
+        const provider = new OpenRouterProvider('');
+        console.log('[SettingsModal] Calling listModels...');
+        fetchedModels = await provider.listModels();
+      }
+
       console.log('[SettingsModal] Received models:', fetchedModels.length);
 
       // Filter to only include text/chat models (exclude image, embedding, etc.)
@@ -155,10 +173,17 @@
     }
   }
 
-  async function saveApiKey() {
+  async function saveOpenRouterApiKey() {
     if (apiKeyInput.trim()) {
-      await settings.setApiKey(apiKeyInput.trim());
+      await settings.setOpenRouterApiKey(apiKeyInput.trim());
       apiKeyInput = '';
+    }
+  }
+
+  async function saveNanoGPTApiKey() {
+    if (nanogptApiKeyInput.trim()) {
+      await settings.setNanoGPTApiKey(nanogptApiKeyInput.trim());
+      nanogptApiKeyInput = '';
     }
   }
 
@@ -167,9 +192,15 @@
     fetchModels();
   }
 
-  async function clearApiKey() {
-    await settings.setApiKey('');
+  async function clearOpenRouterApiKey() {
+    await settings.setOpenRouterApiKey('');
     apiKeySet = false;
+    models = [];
+  }
+
+  async function clearNanoGPTApiKey() {
+    await settings.setNanoGPTApiKey('');
+    nanogptApiKeySet = false;
     models = [];
   }
 
@@ -321,41 +352,120 @@
     <div class="flex-1 overflow-y-auto py-4 min-h-0">
       {#if activeTab === 'api'}
         <div class="space-y-4">
+          <!-- Provider Selection -->
           <div>
             <label class="mb-2 block text-sm font-medium text-surface-300">
-              OpenRouter API Key
+              AI Provider
             </label>
-            {#if apiKeySet}
-              <div class="flex items-center gap-2">
-                <div class="input flex-1 bg-surface-700 text-surface-400">
-                  ••••••••••••••••••••
-                </div>
-                <button class="btn btn-secondary" onclick={clearApiKey}>
-                  Clear
-                </button>
-              </div>
-              <p class="mt-1 text-sm text-green-400">API key configured</p>
-            {:else}
-              <div class="flex gap-2">
-                <input
-                  type="password"
-                  bind:value={apiKeyInput}
-                  placeholder="sk-or-..."
-                  class="input flex-1"
-                />
-                <button
-                  class="btn btn-primary"
-                  onclick={saveApiKey}
-                  disabled={!apiKeyInput.trim()}
-                >
-                  Save
-                </button>
-              </div>
-            {/if}
-            <p class="mt-2 text-sm text-surface-500">
-              Get your API key from <a href="https://openrouter.ai/keys" target="_blank" class="text-accent-400 hover:underline">openrouter.ai</a>
-            </p>
+            <div class="flex gap-2">
+              <button
+                class="flex-1 px-3 py-2 text-xs rounded-lg border transition-colors"
+                class:bg-accent-600={settings.apiSettings.provider === 'openrouter'}
+                class:border-accent-500={settings.apiSettings.provider === 'openrouter'}
+                class:text-white={settings.apiSettings.provider === 'openrouter'}
+                class:bg-surface-700={settings.apiSettings.provider !== 'openrouter'}
+                class:border-surface-600={settings.apiSettings.provider !== 'openrouter'}
+                class:text-surface-300={settings.apiSettings.provider !== 'openrouter'}
+                onclick={async () => {
+                  await settings.setProvider('openrouter');
+                  handleRefreshModels();
+                }}
+              >
+                <div class="font-medium">OpenRouter</div>
+                <div class="text-xs opacity-75 mt-0.5">Aggregator (Many models)</div>
+              </button>
+              <button
+                class="flex-1 px-3 py-2 text-xs rounded-lg border transition-colors"
+                class:bg-accent-600={settings.apiSettings.provider === 'nanogpt'}
+                class:border-accent-500={settings.apiSettings.provider === 'nanogpt'}
+                class:text-white={settings.apiSettings.provider === 'nanogpt'}
+                class:bg-surface-700={settings.apiSettings.provider !== 'nanogpt'}
+                class:border-surface-600={settings.apiSettings.provider !== 'nanogpt'}
+                class:text-surface-300={settings.apiSettings.provider !== 'nanogpt'}
+                onclick={async () => {
+                  await settings.setProvider('nanogpt');
+                  handleRefreshModels();
+                }}
+              >
+                <div class="font-medium">NanoGPT</div>
+                <div class="text-xs opacity-75 mt-0.5">Pay-per-prompt</div>
+              </button>
+            </div>
           </div>
+
+          {#if settings.apiSettings.provider === 'openrouter'}
+            <div>
+              <label class="mb-2 block text-sm font-medium text-surface-300">
+                OpenRouter API Key
+              </label>
+              {#if apiKeySet}
+                <div class="flex items-center gap-2">
+                  <div class="input flex-1 bg-surface-700 text-surface-400">
+                    ••••••••••••••••••••
+                  </div>
+                  <button class="btn btn-secondary" onclick={clearOpenRouterApiKey}>
+                    Clear
+                  </button>
+                </div>
+                <p class="mt-1 text-sm text-green-400">API key configured</p>
+              {:else}
+                <div class="flex gap-2">
+                  <input
+                    type="password"
+                    bind:value={apiKeyInput}
+                    placeholder="sk-or-..."
+                    class="input flex-1"
+                  />
+                  <button
+                    class="btn btn-primary"
+                    onclick={saveOpenRouterApiKey}
+                    disabled={!apiKeyInput.trim()}
+                  >
+                    Save
+                  </button>
+                </div>
+              {/if}
+              <p class="mt-2 text-sm text-surface-500">
+                Get your API key from <a href="https://openrouter.ai/keys" target="_blank" class="text-accent-400 hover:underline">openrouter.ai</a>
+              </p>
+            </div>
+          {:else}
+            <div>
+              <label class="mb-2 block text-sm font-medium text-surface-300">
+                NanoGPT API Key
+              </label>
+              {#if nanogptApiKeySet}
+                <div class="flex items-center gap-2">
+                  <div class="input flex-1 bg-surface-700 text-surface-400">
+                    ••••••••••••••••••••
+                  </div>
+                  <button class="btn btn-secondary" onclick={clearNanoGPTApiKey}>
+                    Clear
+                  </button>
+                </div>
+                <p class="mt-1 text-sm text-green-400">API key configured</p>
+              {:else}
+                <div class="flex gap-2">
+                  <input
+                    type="password"
+                    bind:value={nanogptApiKeyInput}
+                    placeholder="nano-..."
+                    class="input flex-1"
+                  />
+                  <button
+                    class="btn btn-primary"
+                    onclick={saveNanoGPTApiKey}
+                    disabled={!nanogptApiKeyInput.trim()}
+                  >
+                    Save
+                  </button>
+                </div>
+              {/if}
+              <p class="mt-2 text-sm text-surface-500">
+                Get your API key from <a href="https://nano-gpt.com" target="_blank" class="text-accent-400 hover:underline">nano-gpt.com</a>
+              </p>
+            </div>
+          {/if}
 
           <div>
             <div class="mb-2 flex items-center justify-between">
